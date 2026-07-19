@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Annotated
 from urllib.parse import quote
 
@@ -17,7 +18,7 @@ from app.auth import get_current_device, verify_admin_secret, verify_pairing_cre
 from app.config import get_settings
 from app.dashboard import render_dashboard
 from app.database import Base, SessionLocal, engine, get_db
-from app.docker_manager import get_stack_status, stop_idle_stacks
+from app.docker_manager import build_region_info_dict, stop_idle_stacks
 from app.host_paths import resolve_host_path
 from app.models import Device, RegionStack, VpnSession
 from app.pairing import pairing_instructions, pairing_required
@@ -50,6 +51,20 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+async def _periodic_idle_cleanup() -> None:
+    while True:
+        await asyncio.sleep(60)
+        db = SessionLocal()
+        try:
+            stopped = stop_idle_stacks(db)
+            if stopped:
+                logger.info("Periodic idle cleanup stopped %s regional stack(s)", stopped)
+        except Exception as exc:
+            logger.error("Periodic idle cleanup failed: %s", exc)
+        finally:
+            db.close()
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
@@ -70,16 +85,22 @@ async def lifespan(_: FastAPI):
         logger.info("Pairing secret is ENABLED — view it at http://0.0.0.0:8090/")
     else:
         logger.info("Pairing secret is disabled — device registration is open")
-    yield
-    logger.info("Controller shutting down — disabling VPN for all devices and stopping stacks")
-    db = SessionLocal()
+    cleanup_task = asyncio.create_task(_periodic_idle_cleanup())
     try:
-        disabled = shutdown_all_devices(db)
-        logger.info("Shutdown complete — disabled %s device VPN session(s)", disabled)
-    except Exception as exc:
-        logger.error("Shutdown cleanup failed: %s", exc)
+        yield
     finally:
-        db.close()
+        cleanup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await cleanup_task
+        logger.info("Controller shutting down — disabling VPN for all devices and stopping stacks")
+        db = SessionLocal()
+        try:
+            disabled = shutdown_all_devices(db)
+            logger.info("Shutdown complete — disabled %s device VPN session(s)", disabled)
+        except Exception as exc:
+            logger.error("Shutdown cleanup failed: %s", exc)
+        finally:
+            db.close()
 
 
 app = FastAPI(
@@ -91,18 +112,15 @@ app = FastAPI(
 
 
 def _region_dicts(db: Session) -> list[dict]:
-    regions = []
-    for region_id, region in load_regions().items():
-        regions.append(
-            {
-                "id": region_id,
-                "display_name": region.display_name,
-                "server_region": region.server_region,
-                "hostname": region.hostname,
-                "stack_status": get_stack_status(db, region_id) or "stopped",
-            }
-        )
+    regions = [
+        build_region_info_dict(db, region_id, region)
+        for region_id, region in load_regions().items()
+    ]
     return sorted(regions, key=lambda item: item["display_name"])
+
+
+def _region_infos(db: Session) -> list[RegionInfo]:
+    return [RegionInfo(**item) for item in _region_dicts(db)]
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -117,6 +135,7 @@ def dashboard(
         status="ok",
         active_stacks=active,
         registered_devices=devices_count,
+        idle_shutdown_minutes=get_settings().idle_shutdown_minutes,
         regions=_region_dicts(db),
         devices=list_device_summaries(db),
         message=msg,
@@ -131,21 +150,11 @@ def dashboard_state(db: Session = Depends(get_db)) -> DashboardStateResponse:
     active = db.query(RegionStack).filter(RegionStack.status == "running").count()
     devices_count = db.query(Device).count()
     code_row = get_or_create_active_code(db)
-    regions = []
-    for region_id, region in load_regions().items():
-        regions.append(
-            RegionInfo(
-                id=region_id,
-                display_name=region.display_name,
-                server_region=region.server_region,
-                hostname=region.hostname,
-                stack_status=get_stack_status(db, region_id) or "stopped",
-            )
-        )
     return DashboardStateResponse(
         active_stacks=active,
         registered_devices=devices_count,
-        regions=sorted(regions, key=lambda item: item.display_name),
+        idle_shutdown_minutes=get_settings().idle_shutdown_minutes,
+        regions=_region_infos(db),
         devices=[
             DeviceSummary(
                 id=item["id"],
@@ -200,19 +209,7 @@ def health(db: Session = Depends(get_db)) -> HealthResponse:
 
 @app.get("/regions", response_model=RegionListResponse)
 def list_regions(db: Session = Depends(get_db)) -> RegionListResponse:
-    regions = []
-    for region_id, region in load_regions().items():
-        stack_status = get_stack_status(db, region_id) or "stopped"
-        regions.append(
-            RegionInfo(
-                id=region_id,
-                display_name=region.display_name,
-                server_region=region.server_region,
-                hostname=region.hostname,
-                stack_status=stack_status,
-            )
-        )
-    return RegionListResponse(regions=sorted(regions, key=lambda item: item.display_name))
+    return RegionListResponse(regions=_region_infos(db))
 
 
 @app.get("/admin/devices", response_model=DeviceListResponse)

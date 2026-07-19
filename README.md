@@ -291,7 +291,8 @@ flowchart LR
 ```
 
 - Regional stacks start **on demand** when a device enables a region
-- Stacks stop after `IDLE_SHUTDOWN_MINUTES` with no active users
+- Stacks stop after `IDLE_SHUTDOWN_MINUTES` with no active users (checked every 60 seconds)
+- The WebUI shows a live countdown per region when a stack is idle and waiting to shut down
 - Each Gluetun container uses one PIA connection
 
 ---

@@ -8,6 +8,31 @@ from app import __version__
 from app.pairing import pairing_instructions, pairing_required
 
 
+def _idle_label(region: dict) -> str:
+    status = region.get("idle_status", "stopped")
+    stack = region.get("stack_status", "stopped")
+    if status == "in_use":
+        return f"In use ({region.get('ref_count', 0)})"
+    if stack not in {"running", "starting"}:
+        return "—"
+    if status == "eligible":
+        return "Shutdown pending"
+    if not region.get("shutdown_at"):
+        minutes = region.get("idle_shutdown_minutes", 30)
+        return f"Idle ({minutes}m timeout)"
+    return "Counting down…"
+
+
+def _idle_cell_attrs(region: dict) -> str:
+    return (
+        f'class="region-idle" data-idle-status="{escape(region.get("idle_status", "stopped"))}" '
+        f'data-stack-status="{escape(region["stack_status"])}" '
+        f'data-shutdown-at="{escape(region.get("shutdown_at") or "")}" '
+        f'data-idle-minutes="{region.get("idle_shutdown_minutes", 30)}" '
+        f'data-ref-count="{region.get("ref_count", 0)}"'
+    )
+
+
 def _region_options(regions: list[dict], selected: str | None = None) -> str:
     options = ['<option value="">— select region —</option>']
     for region in regions:
@@ -24,6 +49,7 @@ def render_dashboard(
     status: str,
     active_stacks: int,
     registered_devices: int,
+    idle_shutdown_minutes: int,
     regions: list[dict],
     devices: list[dict],
     message: str | None = None,
@@ -71,7 +97,8 @@ def render_dashboard(
         f"<tr data-region-id=\"{escape(r['id'])}\"><td>{escape(r['display_name'])}</td>"
         f"<td><code>{escape(r['server_region'])}</code></td>"
         f"<td><code>{escape(r['hostname'])}</code></td>"
-        f"<td class=\"region-stack\">{escape(r['stack_status'])}</td></tr>"
+        f"<td class=\"region-stack\">{escape(r['stack_status'])}</td>"
+        f"<td {_idle_cell_attrs(r)}>{escape(_idle_label(r))}</td></tr>"
         for r in regions
     )
 
@@ -208,6 +235,7 @@ def render_dashboard(
     <div class="stats">
       <div class="stat"><strong id="stat-active-stacks">{active_stacks}</strong><br><span class="muted">Active stacks</span></div>
       <div class="stat"><strong id="stat-registered-devices">{registered_devices}</strong><br><span class="muted">Registered devices</span></div>
+      <div class="stat"><strong id="stat-idle-timeout">{idle_shutdown_minutes}m</strong><br><span class="muted">Idle shutdown timeout</span></div>
     </div>
     <p><a href="/docs">API documentation</a> · <a href="/health">Health JSON</a> · <a href="/pairing">Pairing JSON</a> · <a href="/regions">Regions JSON</a></p>
   </section>
@@ -230,8 +258,8 @@ def render_dashboard(
   <section class="card">
     <h2>Available regions</h2>
     <table>
-      <thead><tr><th>Region</th><th>PIA server region</th><th>Exit node hostname</th><th>Stack status</th></tr></thead>
-      <tbody id="regions-tbody">{region_rows or '<tr><td colspan="4">No regions configured</td></tr>'}</tbody>
+      <thead><tr><th>Region</th><th>PIA server region</th><th>Exit node hostname</th><th>Stack status</th><th>Idle shutdown</th></tr></thead>
+      <tbody id="regions-tbody">{region_rows or '<tr><td colspan="5">No regions configured</td></tr>'}</tbody>
     </table>
     <p class="muted">After enabling a region, select the matching exit node in the Tailscale app on the device (e.g. <code>pia-mexico</code>).</p>
   </section>
@@ -339,9 +367,65 @@ def render_dashboard(
         .join("");
     }}
 
+    function formatIdleCountdown(region) {{
+      if (region.idle_status === "in_use") {{
+        return `In use (${{region.ref_count}})`;
+      }}
+      if (region.stack_status !== "running" && region.stack_status !== "starting") {{
+        return "—";
+      }}
+      if (region.idle_status === "eligible") {{
+        return "Shutdown pending";
+      }}
+      if (!region.shutdown_at) {{
+        return `Idle (${{region.idle_shutdown_minutes}}m timeout)`;
+      }}
+      const remaining = new Date(region.shutdown_at) - Date.now();
+      if (remaining <= 0) return "Shutdown pending";
+      const mins = Math.floor(remaining / 60000);
+      const secs = Math.floor((remaining % 60000) / 1000);
+      return `Stops in ${{mins}}m ${{secs}}s`;
+    }}
+
+    function regionIdleCellAttrs(region) {{
+      return `class="region-idle" data-idle-status="${{escapeHtml(region.idle_status)}}" data-stack-status="${{escapeHtml(region.stack_status)}}" data-shutdown-at="${{escapeHtml(region.shutdown_at || "")}}" data-idle-minutes="${{region.idle_shutdown_minutes}}" data-ref-count="${{region.ref_count}}"`;
+    }}
+
+    function tickIdleCountdowns() {{
+      document.querySelectorAll(".region-idle").forEach((cell) => {{
+        const region = {{
+          idle_status: cell.dataset.idleStatus,
+          stack_status: cell.dataset.stackStatus,
+          shutdown_at: cell.dataset.shutdownAt || null,
+          idle_shutdown_minutes: Number(cell.dataset.idleMinutes || 30),
+          ref_count: Number(cell.dataset.refCount || 0),
+        }};
+        cell.textContent = formatIdleCountdown(region);
+      }});
+    }}
+
     function updateRegions(regions) {{
       const tbody = document.getElementById("regions-tbody");
       if (!tbody) return;
+
+      const currentIds = [...tbody.querySelectorAll("tr[data-region-id]")].map((row) => row.dataset.regionId).join(",");
+      const nextIds = regions.map((region) => region.id).join(",");
+
+      if (currentIds === nextIds) {{
+        for (const region of regions) {{
+          const row = tbody.querySelector(`tr[data-region-id="${{region.id}}"]`);
+          if (!row) continue;
+          row.querySelector(".region-stack").textContent = region.stack_status;
+          const idleCell = row.querySelector(".region-idle");
+          idleCell.dataset.idleStatus = region.idle_status;
+          idleCell.dataset.stackStatus = region.stack_status;
+          idleCell.dataset.shutdownAt = region.shutdown_at || "";
+          idleCell.dataset.idleMinutes = region.idle_shutdown_minutes;
+          idleCell.dataset.refCount = region.ref_count;
+          idleCell.textContent = formatIdleCountdown(region);
+        }}
+        return;
+      }}
 
       tbody.innerHTML = regions.map((region) => `
         <tr data-region-id="${{escapeHtml(region.id)}}">
@@ -349,6 +433,7 @@ def render_dashboard(
           <td><code>${{escapeHtml(region.server_region)}}</code></td>
           <td><code>${{escapeHtml(region.hostname)}}</code></td>
           <td class="region-stack">${{escapeHtml(region.stack_status)}}</td>
+          <td ${{regionIdleCellAttrs(region)}}>${{escapeHtml(formatIdleCountdown(region))}}</td>
         </tr>`).join("");
     }}
 
@@ -379,6 +464,7 @@ def render_dashboard(
 
         document.getElementById("stat-active-stacks").textContent = state.active_stacks;
         document.getElementById("stat-registered-devices").textContent = state.registered_devices;
+        document.getElementById("stat-idle-timeout").textContent = `${{state.idle_shutdown_minutes}}m`;
         updateRegions(state.regions);
         updateDevices(state.devices, state.regions, state.pairing_required);
         updatePairing(state);
@@ -396,6 +482,8 @@ def render_dashboard(
 
     refreshDashboard();
     setInterval(refreshDashboard, POLL_INTERVAL_MS);
+    setInterval(tickIdleCountdowns, 1000);
+    tickIdleCountdowns();
     document.addEventListener("visibilitychange", () => {{
       if (!document.hidden) refreshDashboard();
     }});

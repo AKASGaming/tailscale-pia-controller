@@ -41,6 +41,10 @@ class RegionInfo(BaseModel):
     server_region: str
     hostname: str
     stack_status: str
+    ref_count: int = 0
+    idle_shutdown_minutes: int = 30
+    shutdown_at: str | None = None
+    idle_status: str = "stopped"
 
 
 class RegionListResponse(BaseModel):
@@ -81,6 +85,7 @@ class DeviceListResponse(BaseModel):
 class DashboardStateResponse(BaseModel):
     active_stacks: int
     registered_devices: int
+    idle_shutdown_minutes: int
     regions: list[RegionInfo]
     devices: list[DeviceSummary]
     pairing_required: bool

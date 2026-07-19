@@ -330,3 +330,54 @@ def get_stack_status(db: Session, region_id: str | None) -> str | None:
         return None
     stack = db.get(RegionStack, region_id)
     return stack.status if stack else None
+
+
+def stack_idle_info(stack: RegionStack | None) -> dict:
+    settings = get_settings()
+    idle_minutes = settings.idle_shutdown_minutes
+
+    if stack is None or stack.status not in {"running", "starting"}:
+        return {
+            "ref_count": 0,
+            "idle_shutdown_minutes": idle_minutes,
+            "shutdown_at": None,
+            "idle_status": "stopped",
+        }
+
+    if stack.ref_count > 0:
+        return {
+            "ref_count": stack.ref_count,
+            "idle_shutdown_minutes": idle_minutes,
+            "shutdown_at": None,
+            "idle_status": "in_use",
+        }
+
+    if not stack.last_used_at:
+        return {
+            "ref_count": 0,
+            "idle_shutdown_minutes": idle_minutes,
+            "shutdown_at": None,
+            "idle_status": "idle",
+        }
+
+    shutdown_at = stack.last_used_at + timedelta(minutes=idle_minutes)
+    idle_status = "eligible" if shutdown_at <= datetime.utcnow() else "idle"
+    return {
+        "ref_count": 0,
+        "idle_shutdown_minutes": idle_minutes,
+        "shutdown_at": shutdown_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "idle_status": idle_status,
+    }
+
+
+def build_region_info_dict(db: Session, region_id: str, region: RegionConfig) -> dict:
+    stack = db.get(RegionStack, region_id)
+    idle = stack_idle_info(stack)
+    return {
+        "id": region_id,
+        "display_name": region.display_name,
+        "server_region": region.server_region,
+        "hostname": region.hostname,
+        "stack_status": get_stack_status(db, region_id) or "stopped",
+        **idle,
+    }
