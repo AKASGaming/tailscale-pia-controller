@@ -1,6 +1,12 @@
-# Tailscale PIA Controller
+<p align="center">
+  <img src="controller/app/static/app-icon.png" alt="PIA Control" width="128" />
+</p>
 
-Per-device [Private Internet Access](https://www.privateinternetaccess.com) (PIA) region control for devices that already use **Tailscale** as their only VPN.
+<h1 align="center">Tailscale PIA Controller</h1>
+
+<p align="center">
+  Per-device <a href="https://www.privateinternetaccess.com">Private Internet Access</a> (PIA) region control for devices that already use <strong>Tailscale</strong> as their only VPN.
+</p>
 
 This solves the Android "one VPN slot" problem: keep Tailscale connected for home services and Pi-hole DNS, then route **only your device's internet traffic** through PIA when you need it — without disconnecting Tailscale.
 
@@ -20,7 +26,7 @@ Each device picks its own region (e.g. Mexico, Australia). Other devices are una
 |---|---|
 | **vpn-controller** | REST API + web dashboard — device registration, per-device on/off, on-demand regional stacks |
 | **Gluetun + Tailscale exit nodes** | One Docker stack per region (`gluetun-<region>` + `tailscale-exit-<region>`) |
-| **Android app** | Region picker, VPN toggle, Tailscale exit node automation, QR pairing |
+| **Android app** | Region picker, VPN toggle, Tailscale exit node automation, QR pairing, background sync |
 | **Windows client** | PowerShell/Python CLI + `tailscale set --exit-node` |
 
 ---
@@ -142,10 +148,13 @@ Default regions are in [`regions/regions.yaml`](regions/regions.yaml). The `serv
 
 The dashboard at **http://your-docker-host:8090/** provides:
 
-- **Live status** — device VPN state, regional stack status, and stats auto-refresh every 3 seconds
+- **Live status** — server status (`Idle` / `Active`), device VPN state, and stats auto-refresh every 5 seconds
+- **Stack status** — shows `idle` when a regional stack is running but no devices are connected
+- **Idle shutdown** — live countdown per region, plus a **Stop now** button to shut down idle stacks early
 - **Pair a device** — QR code + 6-character pairing code (when `CONTROLLER_SECRET` is set)
 - **Per-device controls** — enable/disable VPN, change region, remove devices
-- **Region overview** — PIA server region names and stack status
+- **Region overview** — PIA server region names, stack status, and idle shutdown state
+- **In-app feedback** — admin actions show confirmation banners without reloading the page
 
 If `CONTROLLER_SECRET` is empty, registration is open and the QR code only encodes the controller URL.
 
@@ -159,7 +168,7 @@ If `CONTROLLER_SECRET` is empty, registration is open and the QR code only encod
 
 **Option A — Download APK (recommended)**
 
-Download the latest APK from [GitHub Releases](https://github.com/AKASGaming/tailscale-pia-controller/releases) (currently `pia-control-v1.0.10-debug.apk`).
+Download the latest APK from [GitHub Releases](https://github.com/AKASGaming/tailscale-pia-controller/releases) (currently `pia-control-v1.0.17-debug.apk` from [v1.0.23](https://github.com/AKASGaming/tailscale-pia-controller/releases/tag/v1.0.23)).
 
 Enable "Install unknown apps" for your browser or files app if prompted.
 
@@ -177,13 +186,14 @@ Enable "Install unknown apps" for your browser or files app if prompted.
    - Tap **Scan pairing QR code** on the web dashboard, or
    - Tap **Check connection**, then enter the 6-character pairing code shown on the dashboard
 4. Enter a device name → tap **Register device**
+5. Allow notifications when prompted (Android 13+) — needed for alerts when the WebUI changes VPN settings while the app is in the background
 
 ### Daily usage
 
 1. **Tailscale** must stay connected (always)
 2. Open **PIA Control**
 3. Select a region from the dropdown
-4. Toggle **Enable PIA via Tailscale**
+4. Toggle **Route traffic through PIA**
 5. Wait for the stack to start (15–45 seconds on first use per region). The app applies the Tailscale exit node automatically when ready
 6. Browse — your IP reflects the PIA region; home LAN and Pi-hole DNS still work via Tailscale
 7. To switch regions: pick a new region from the dropdown while VPN is on
@@ -193,6 +203,10 @@ Enable "Install unknown apps" for your browser or files app if prompted.
 
 | Feature | Description |
 |---|---|
+| **Remote sync** | Polls the controller every 3 seconds while registered — WebUI changes apply even when the app is in the background |
+| **Background notifications** | Alerts when VPN is enabled, disabled, or region-changed from the WebUI while the app is not open |
+| **Exit node automation** | Applies and clears the Tailscale exit node automatically; clears it when VPN is disabled remotely |
+| **Device settings** | Edit device name, re-register, or reset all app data from the setup screen |
 | **Refresh status** | Reloads VPN state and region list from the controller |
 | **Open Tailscale** | Launch Tailscale to manually pick an exit node if needed |
 | **Test IP & location** | Check your public IP through the active route |
@@ -249,6 +263,7 @@ python apps/windows/vpn-control.py disable
 | `GET` | `/pairing` | No | Pairing requirements + 6-char code |
 | `GET` | `/dashboard/state` | No | Live dashboard JSON |
 | `POST` | `/devices/register` | Pairing code or secret | Register device, returns API token |
+| `PATCH` | `/devices/me` | Bearer token | Update device name |
 | `GET` | `/devices/me/vpn` | Bearer token | Current device VPN state |
 | `PUT` | `/devices/me/vpn` | Bearer token | `{ "enabled": true, "region": "mexico" }` |
 
@@ -308,6 +323,7 @@ flowchart LR
 | Pi-hole blocking stops | Verify Tailscale DNS still points to Pi-hole in admin console |
 | App says "Connect Tailscale first" | Open Tailscale and ensure VPN is connected before enabling PIA |
 | Stale exit node after controller restart | Open PIA Control and tap **Refresh status** — exit node clears automatically |
+| WebUI change not reflected on phone | Ensure the app is registered and notifications are allowed; the app polls every 3 seconds in the background |
 | Regional stack won't start | Check controller logs for `Resolved host runtime directory` and Docker socket access |
 | Portainer grouping wrong | Set `DOCKER_PROJECT_NAME` in `.env` to match your stack name |
 
@@ -351,6 +367,7 @@ tailscale-pia-controller/
 ├── docker-compose.yml          # Controller service
 ├── regions/regions.yaml        # Region definitions
 ├── controller/                 # FastAPI API + web dashboard
+│   └── app/static/             # Dashboard CSS, JS, and app icon
 ├── apps/android/               # Android control app
 ├── apps/windows/               # PowerShell + Python CLI
 ├── releases/                   # Prebuilt Android APKs
