@@ -25,6 +25,38 @@ class Prefs(context: Context) {
         get() = prefs.getString("last_applied_exit_node", null)
         set(value) = prefs.edit().putString("last_applied_exit_node", value).apply()
 
+    var lastSyncedVpnEnabled: Boolean?
+        get() = if (prefs.contains("last_synced_vpn_enabled")) {
+            prefs.getBoolean("last_synced_vpn_enabled", false)
+        } else {
+            null
+        }
+        set(value) {
+            val editor = prefs.edit()
+            if (value == null) {
+                editor.remove("last_synced_vpn_enabled")
+            } else {
+                editor.putBoolean("last_synced_vpn_enabled", value)
+            }
+            editor.apply()
+        }
+
+    var lastSyncedRegion: String?
+        get() = if (prefs.contains("last_synced_region")) {
+            prefs.getString("last_synced_region", null)
+        } else {
+            null
+        }
+        set(value) {
+            val editor = prefs.edit()
+            if (value == null) {
+                editor.remove("last_synced_region")
+            } else {
+                editor.putString("last_synced_region", value)
+            }
+            editor.apply()
+        }
+
     val isRegistered: Boolean
         get() = !apiToken.isNullOrBlank()
 
@@ -33,6 +65,8 @@ class Prefs(context: Context) {
             .remove("api_token")
             .remove("device_id")
             .remove("last_applied_exit_node")
+            .remove("last_synced_vpn_enabled")
+            .remove("last_synced_region")
             .apply()
     }
 

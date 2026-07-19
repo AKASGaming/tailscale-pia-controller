@@ -1,6 +1,9 @@
 package com.tailscalepiacontrol
 
+import android.Manifest
 import android.content.res.ColorStateList
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.widget.AdapterView
@@ -10,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -55,6 +59,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            toast(getString(R.string.notifications_permission_denied))
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -64,6 +76,7 @@ class MainActivity : AppCompatActivity() {
         applySystemBarInsets()
         prefs = Prefs(this)
         AppLogger.info("MainActivity", "App started")
+        NotificationHelper.createChannels(this)
 
         restoreSetupFields()
 
@@ -95,10 +108,20 @@ class MainActivity : AppCompatActivity() {
 
         updateRegistrationUi()
         if (prefs.isRegistered) {
+            ensureNotificationPermission()
             enableVpnControls()
             refreshStatus()
         } else {
             showIdleStatus()
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        AppVisibility.isInForeground = true
+        if (prefs.isRegistered) {
+            VpnMonitorService.stop(this)
+            startStatusPolling()
         }
     }
 
@@ -108,6 +131,15 @@ class MainActivity : AppCompatActivity() {
         if (prefs.isRegistered) {
             refreshStatus()
         }
+    }
+
+    override fun onStop() {
+        AppVisibility.isInForeground = false
+        stopStatusPolling()
+        if (prefs.isRegistered) {
+            VpnMonitorService.start(this)
+        }
+        super.onStop()
     }
 
     override fun onPause() {
@@ -290,6 +322,7 @@ class MainActivity : AppCompatActivity() {
                 binding.deviceNameInput.setText(response.name)
                 toast("Registered as ${response.name}")
                 updateRegistrationUi()
+                ensureNotificationPermission()
                 enableVpnControls()
                 refreshStatus()
             } catch (error: Exception) {
@@ -340,6 +373,7 @@ class MainActivity : AppCompatActivity() {
     private fun resetAllData() {
         exitNodePollJob?.cancel()
         stopStatusPolling()
+        VpnMonitorService.stop(this)
         clearExitNode()
         activeRegionId = null
         cachedRegionIds = null
@@ -464,6 +498,7 @@ class MainActivity : AppCompatActivity() {
                         toast(getString(R.string.vpn_enabled_remotely))
                 }
             }
+            VpnRemoteSync.updateLastSynced(prefs, status)
         } catch (error: Exception) {
             if (!handleApiError(error) && showErrors) {
                 if (prefs.lastAppliedExitNode != null) {
@@ -775,6 +810,7 @@ class MainActivity : AppCompatActivity() {
     private fun resetRegistration() {
         exitNodePollJob?.cancel()
         stopStatusPolling()
+        VpnMonitorService.stop(this)
         clearExitNode()
         activeRegionId = null
         cachedRegionIds = null
@@ -813,7 +849,19 @@ class MainActivity : AppCompatActivity() {
         binding.regionSpinner.isEnabled = true
         binding.refreshButton.isEnabled = true
         updateRegistrationUi()
-        startStatusPolling()
+        if (AppVisibility.isInForeground) {
+            startStatusPolling()
+        }
+    }
+
+    private fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     private fun toast(message: String) {

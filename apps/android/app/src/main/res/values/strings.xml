@@ -54,4 +54,17 @@
     <string name="stack_unavailable_cleared_exit">Exit node unavailable — cleared exit node</string>
     <string name="controller_unreachable_cleared_exit">Controller unreachable — cleared exit node</string>
     <string name="status_idle">VPN off — Tailscale stays connected</string>
+    <string name="notification_channel_monitor">Background monitoring</string>
+    <string name="notification_channel_monitor_desc">Keeps watching the controller while the app is closed</string>
+    <string name="notification_channel_changes">Controller changes</string>
+    <string name="notification_channel_changes_desc">Alerts when VPN settings change from the WebUI</string>
+    <string name="notification_monitor_title">PIA Control</string>
+    <string name="notification_monitor_text">Watching for controller changes</string>
+    <string name="notification_vpn_disabled_title">VPN turned off</string>
+    <string name="notification_vpn_disabled_text">Your controller disabled PIA routing on this device</string>
+    <string name="notification_vpn_enabled_title">VPN turned on</string>
+    <string name="notification_vpn_enabled_text">Your controller enabled PIA routing (%1$s)</string>
+    <string name="notification_region_changed_title">Region changed</string>
+    <string name="notification_region_changed_text">Your controller switched the region to %1$s</string>
+    <string name="notifications_permission_denied">Notifications are off — you won\'t be alerted when the controller changes VPN settings</string>
 </resources>

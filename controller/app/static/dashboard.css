@@ -51,6 +51,9 @@ body {
   font-size: 0.92rem;
 }
 
+.server-status-idle { color: var(--muted); }
+.server-status-active { color: var(--success); }
+
 .live-pill {
   display: inline-flex;
   align-items: center;

@@ -92,6 +92,7 @@ class DeviceListResponse(BaseModel):
 
 
 class DashboardStateResponse(BaseModel):
+    status: str
     active_stacks: int
     registered_devices: int
     idle_shutdown_minutes: int

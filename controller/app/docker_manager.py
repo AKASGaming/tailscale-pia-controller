@@ -312,6 +312,14 @@ def active_session_count(db: Session, region_id: str) -> int:
     )
 
 
+def active_vpn_session_count(db: Session) -> int:
+    return db.query(VpnSession).filter(VpnSession.enabled.is_(True)).count()
+
+
+def server_status(db: Session) -> str:
+    return "Idle" if active_vpn_session_count(db) == 0 else "Active"
+
+
 def reconcile_ref_counts(db: Session) -> None:
     """Sync stored ref_count values with enabled VPN sessions."""
     stacks = db.query(RegionStack).all()

@@ -19,7 +19,7 @@ from app.auth import get_current_device, verify_admin_secret, verify_pairing_cre
 from app.config import get_settings
 from app.dashboard import render_dashboard
 from app.database import Base, SessionLocal, engine, get_db
-from app.docker_manager import build_region_info_dict, reconcile_ref_counts, stop_idle_stacks, stop_region_stack
+from app.docker_manager import build_region_info_dict, reconcile_ref_counts, server_status, stop_idle_stacks, stop_region_stack
 from app.host_paths import resolve_host_path
 from app.models import Device, RegionStack, VpnSession
 from app.pairing import pairing_instructions, pairing_required
@@ -148,7 +148,7 @@ def dashboard(
     devices_count = db.query(Device).count()
     code_row = get_or_create_active_code(db)
     html = render_dashboard(
-        status="ok",
+        status=server_status(db),
         active_stacks=active,
         registered_devices=devices_count,
         idle_shutdown_minutes=get_settings().idle_shutdown_minutes,
@@ -166,6 +166,7 @@ def dashboard_state(db: Session = Depends(get_db)) -> DashboardStateResponse:
     devices_count = db.query(Device).count()
     code_row = get_or_create_active_code(db)
     return DashboardStateResponse(
+        status=server_status(db),
         active_stacks=active,
         registered_devices=devices_count,
         idle_shutdown_minutes=get_settings().idle_shutdown_minutes,

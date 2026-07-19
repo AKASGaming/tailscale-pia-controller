@@ -182,7 +182,7 @@ def render_dashboard(
     <header class="topbar">
       <div>
         <h1>Tailscale PIA Controller</h1>
-        <p class="meta">Version {escape(__version__)} · Status: <strong>{escape(status)}</strong></p>
+        <p class="meta">Version {escape(__version__)} · Status: <strong id="server-status" class="server-status server-status-{escape(status.lower())}">{escape(status)}</strong></p>
       </div>
       <div id="live-indicator" class="live-pill">Live updates starting…</div>
     </header>

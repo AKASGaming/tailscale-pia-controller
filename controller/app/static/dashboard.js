@@ -236,6 +236,12 @@ async function refreshDashboard() {
     document.getElementById("stat-active-stacks").textContent = state.active_stacks;
     document.getElementById("stat-registered-devices").textContent = state.registered_devices;
     document.getElementById("stat-idle-timeout").textContent = `${state.idle_shutdown_minutes}m`;
+
+    const statusEl = document.getElementById("server-status");
+    if (statusEl && state.status) {
+      statusEl.textContent = state.status;
+      statusEl.className = `server-status server-status-${state.status.toLowerCase()}`;
+    }
     updateRegions(state.regions);
     updateDevices(state.devices, state.regions);
     updatePairing(state);
