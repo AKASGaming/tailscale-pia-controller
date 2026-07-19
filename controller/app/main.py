@@ -18,7 +18,7 @@ from app.auth import get_current_device, verify_admin_secret, verify_pairing_cre
 from app.config import get_settings
 from app.dashboard import render_dashboard
 from app.database import Base, SessionLocal, engine, get_db
-from app.docker_manager import build_region_info_dict, reconcile_ref_counts, stop_idle_stacks
+from app.docker_manager import build_region_info_dict, reconcile_ref_counts, stop_idle_stacks, stop_region_stack
 from app.host_paths import resolve_host_path
 from app.models import Device, RegionStack, VpnSession
 from app.pairing import pairing_instructions, pairing_required
@@ -314,3 +314,29 @@ def admin_delete_device(
 def cleanup_idle(db: Session = Depends(get_db)) -> dict:
     stopped = stop_idle_stacks(db)
     return {"stopped": stopped}
+
+
+@app.post("/admin/regions/{region_id}/stop")
+def admin_stop_region(
+    region_id: str,
+    db: Session = Depends(get_db),
+    secret: Annotated[str | None, Form()] = None,
+):
+    verify_admin_secret(secret)
+    regions = load_regions()
+    if region_id not in regions:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown region")
+
+    try:
+        stopped = stop_region_stack(db, region_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    if not stopped:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Regional stack is not running",
+        )
+
+    label = regions[region_id].display_name
+    return RedirectResponse(url=f"/?msg={quote(f'Stopped {label} stack')}", status_code=303)

@@ -320,6 +320,23 @@ def reconcile_ref_counts(db: Session) -> None:
     db.commit()
 
 
+def stop_region_stack(db: Session, region_id: str) -> bool:
+    """Stop a regional stack when no devices are actively using it."""
+    stack = db.get(RegionStack, region_id)
+    if stack is None or stack.status not in {"running", "starting"}:
+        return False
+    if active_session_count(db, region_id) > 0:
+        raise RuntimeError("Cannot stop a region stack that is in use")
+
+    _remove_container(f"tailscale-exit-{region_id}")
+    _remove_container(f"gluetun-{region_id}")
+    stack.status = "stopped"
+    stack.ref_count = 0
+    stack.error_message = None
+    db.commit()
+    return True
+
+
 def stop_idle_stacks(db: Session) -> int:
     settings = get_settings()
     cutoff = datetime.utcnow() - timedelta(minutes=settings.idle_shutdown_minutes)

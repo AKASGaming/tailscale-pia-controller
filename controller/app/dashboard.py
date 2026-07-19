@@ -35,6 +35,21 @@ def _idle_cell_attrs(region: dict) -> str:
     )
 
 
+def _region_stop_button(region: dict, admin_secret_field: str) -> str:
+    if region.get("idle_status") not in {"idle", "eligible"}:
+        return ""
+    if region.get("stack_status") not in {"running", "starting"}:
+        return ""
+    region_id = escape(region["id"])
+    return (
+        f'<form method="post" action="/admin/regions/{region_id}/stop" class="inline-form" '
+        f'onsubmit="return confirm(\'Stop this regional stack now?\');">'
+        f"{admin_secret_field}"
+        f'<button type="submit" class="danger">Stop now</button>'
+        f"</form>"
+    )
+
+
 def _region_options(regions: list[dict], selected: str | None = None) -> str:
     options = ['<option value="">— select region —</option>']
     for region in regions:
@@ -95,15 +110,6 @@ def render_dashboard(
         </section>
         """
 
-    region_rows = "".join(
-        f"<tr data-region-id=\"{escape(r['id'])}\"><td>{escape(r['display_name'])}</td>"
-        f"<td><code>{escape(r['server_region'])}</code></td>"
-        f"<td><code>{escape(r['hostname'])}</code></td>"
-        f"<td class=\"region-stack\">{escape(r['stack_status'])}</td>"
-        f"<td {_idle_cell_attrs(r)}>{escape(_idle_label(r))}</td></tr>"
-        for r in regions
-    )
-
     admin_secret_field = ""
     if pairing_required():
         admin_secret_field = """
@@ -111,6 +117,16 @@ def render_dashboard(
           <input type="password" name="secret" placeholder="Pairing secret" required />
         </label>
         """
+
+    region_rows = "".join(
+        f"<tr data-region-id=\"{escape(r['id'])}\"><td>{escape(r['display_name'])}</td>"
+        f"<td><code>{escape(r['server_region'])}</code></td>"
+        f"<td><code>{escape(r['hostname'])}</code></td>"
+        f"<td class=\"region-stack\">{escape(r['stack_status'])}</td>"
+        f"<td {_idle_cell_attrs(r)}>{escape(_idle_label(r))}</td>"
+        f"<td class=\"region-actions\">{_region_stop_button(r, admin_secret_field)}</td></tr>"
+        for r in regions
+    )
 
     device_rows = ""
     for device in devices:
@@ -260,8 +276,8 @@ def render_dashboard(
   <section class="card">
     <h2>Available regions</h2>
     <table>
-      <thead><tr><th>Region</th><th>PIA server region</th><th>Exit node hostname</th><th>Stack status</th><th>Idle shutdown</th></tr></thead>
-      <tbody id="regions-tbody">{region_rows or '<tr><td colspan="5">No regions configured</td></tr>'}</tbody>
+      <thead><tr><th>Region</th><th>PIA server region</th><th>Exit node hostname</th><th>Stack status</th><th>Idle shutdown</th><th>Actions</th></tr></thead>
+      <tbody id="regions-tbody">{region_rows or '<tr><td colspan="6">No regions configured</td></tr>'}</tbody>
     </table>
     <p class="muted">After enabling a region, select the matching exit node in the Tailscale app on the device (e.g. <code>pia-mexico</code>).</p>
   </section>
@@ -407,10 +423,36 @@ def render_dashboard(
       }});
     }}
 
-    function updateRegions(regions) {{
+    function collectRegionAdminSecrets() {{
+      const secrets = {{}};
+      document.querySelectorAll("#regions-tbody tr[data-region-id]").forEach((row) => {{
+        const secret = row.querySelector('.region-actions input[name="secret"]')?.value;
+        if (secret) secrets[row.dataset.regionId] = secret;
+      }});
+      return secrets;
+    }}
+
+    function renderRegionStopButton(region, pairingRequired, savedSecret) {{
+      if (!["idle", "eligible"].includes(region.idle_status)) return "";
+      if (!["running", "starting"].includes(region.stack_status)) return "";
+      const secretValue = savedSecret ? ` value="${{escapeHtml(savedSecret)}}"` : "";
+      const secretField = pairingRequired
+        ? `<label>Admin secret
+            <input type="password" name="secret" placeholder="Pairing secret" required${{secretValue}} />
+          </label>`
+        : "";
+      return `<form method="post" action="/admin/regions/${{escapeHtml(region.id)}}/stop" class="inline-form"
+        onsubmit="return confirm('Stop this regional stack now?');">
+        ${{secretField}}
+        <button type="submit" class="danger">Stop now</button>
+      </form>`;
+    }}
+
+    function updateRegions(regions, pairingRequired) {{
       const tbody = document.getElementById("regions-tbody");
       if (!tbody) return;
 
+      const savedSecrets = collectRegionAdminSecrets();
       const currentIds = [...tbody.querySelectorAll("tr[data-region-id]")].map((row) => row.dataset.regionId).join(",");
       const nextIds = regions.map((region) => region.id).join(",");
 
@@ -426,6 +468,8 @@ def render_dashboard(
           idleCell.dataset.idleMinutes = region.idle_shutdown_minutes;
           idleCell.dataset.refCount = region.ref_count;
           idleCell.textContent = formatIdleCountdown(region);
+          const actionsCell = row.querySelector(".region-actions");
+          actionsCell.innerHTML = renderRegionStopButton(region, pairingRequired, savedSecrets[region.id]);
         }}
         return;
       }}
@@ -437,6 +481,7 @@ def render_dashboard(
           <td><code>${{escapeHtml(region.hostname)}}</code></td>
           <td class="region-stack">${{escapeHtml(region.stack_status)}}</td>
           <td ${{regionIdleCellAttrs(region)}}>${{escapeHtml(formatIdleCountdown(region))}}</td>
+          <td class="region-actions">${{renderRegionStopButton(region, pairingRequired, savedSecrets[region.id])}}</td>
         </tr>`).join("");
     }}
 
@@ -468,7 +513,7 @@ def render_dashboard(
         document.getElementById("stat-active-stacks").textContent = state.active_stacks;
         document.getElementById("stat-registered-devices").textContent = state.registered_devices;
         document.getElementById("stat-idle-timeout").textContent = `${{state.idle_shutdown_minutes}}m`;
-        updateRegions(state.regions);
+        updateRegions(state.regions, state.pairing_required);
         updateDevices(state.devices, state.regions, state.pairing_required);
         updatePairing(state);
 
