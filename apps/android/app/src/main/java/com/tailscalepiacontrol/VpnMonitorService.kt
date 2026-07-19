@@ -32,7 +32,7 @@ class VpnMonitorService : Service() {
         }
 
         startForeground(
-            NotificationHelper.NOTIFICATION_ID_FOREGROUND,
+            NotificationHelper.NOTIFICATION_ID,
             NotificationHelper.buildSilentForegroundNotification(this),
         )
         startPolling()

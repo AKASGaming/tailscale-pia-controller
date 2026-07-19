@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -12,8 +13,7 @@ import androidx.core.app.NotificationCompat
 object NotificationHelper {
     const val CHANNEL_CHANGES = "vpn_changes"
     private const val CHANNEL_FOREGROUND = "vpn_foreground"
-    const val NOTIFICATION_ID_FOREGROUND = 1
-    const val NOTIFICATION_ID_CHANGE = 2
+    const val NOTIFICATION_ID = 1
 
     fun createChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -25,7 +25,6 @@ object NotificationHelper {
         ).apply {
             description = context.getString(R.string.notification_channel_changes_desc)
         }
-
         manager.createNotificationChannel(changesChannel)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -42,27 +41,19 @@ object NotificationHelper {
             }
             manager.createNotificationChannel(silentChannel)
         }
+
+        // Clean up the old second notification slot from earlier builds.
+        manager.cancel(2)
     }
 
     fun buildSilentForegroundNotification(context: Context): Notification {
-        val openAppIntent = PendingIntent.getActivity(
-            context,
-            0,
-            Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-
         return NotificationCompat.Builder(context, CHANNEL_FOREGROUND)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(context.getString(R.string.app_name))
-            .setContentText(" ")
-            .setContentIntent(openAppIntent)
             .setOngoing(true)
             .setSilent(true)
             .setShowWhen(false)
             .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFERRED)
             .build()
@@ -86,15 +77,14 @@ object NotificationHelper {
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(openAppIntent)
-            .setAutoCancel(true)
+            .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 
-    fun showChangeNotification(context: Context, change: VpnRemoteSync.RemoteChange) {
-        context.getSystemService(NotificationManager::class.java)
-            .notify(NOTIFICATION_ID_CHANGE, buildChangeNotification(context, change))
+    fun showChangeNotification(service: Service, change: VpnRemoteSync.RemoteChange) {
+        service.startForeground(NOTIFICATION_ID, buildChangeNotification(service, change))
     }
 
     private fun changeContent(context: Context, change: VpnRemoteSync.RemoteChange): Pair<String, String> {
