@@ -4,12 +4,37 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.provider.Settings
 
 object TailscaleHelper {
     private const val TAILSCALE_PACKAGE = "com.tailscale.ipn"
     private const val TAILSCALE_MAIN_ACTIVITY = "com.tailscale.ipn.MainActivity"
+
+    fun isInstalled(context: Context): Boolean {
+        return try {
+            context.packageManager.getPackageInfo(TAILSCALE_PACKAGE, PackageManager.GET_ACTIVITIES)
+            true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        }
+    }
+
+    fun isConnected(context: Context): Boolean {
+        if (!isInstalled(context)) return false
+
+        val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val networks = connectivity.allNetworks
+        for (network in networks) {
+            val capabilities = connectivity.getNetworkCapabilities(network) ?: continue
+            if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                return true
+            }
+        }
+        return false
+    }
 
     fun setExitNode(context: Context, hostname: String?, allowLanAccess: Boolean = true) {
         val intent = Intent("com.tailscale.ipn.USE_EXIT_NODE").apply {
@@ -21,7 +46,7 @@ object TailscaleHelper {
     }
 
     fun openTailscaleApp(context: Context) {
-        if (!isTailscaleInstalled(context)) {
+        if (!isInstalled(context)) {
             openPlayStore(context)
             return
         }
@@ -71,14 +96,5 @@ object TailscaleHelper {
                 Uri.parse("https://play.google.com/store/apps/details?id=$TAILSCALE_PACKAGE")
             ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
         )
-    }
-
-    private fun isTailscaleInstalled(context: Context): Boolean {
-        return try {
-            context.packageManager.getPackageInfo(TAILSCALE_PACKAGE, PackageManager.GET_ACTIVITIES)
-            true
-        } catch (_: PackageManager.NameNotFoundException) {
-            false
-        }
     }
 }

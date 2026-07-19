@@ -15,7 +15,12 @@ class ControllerClient(baseUrl: String, private val apiToken: String? = null) {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    private val vpnClient = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
     fun getPairingInfo(): PairingInfoResponse {
@@ -60,7 +65,7 @@ class ControllerClient(baseUrl: String, private val apiToken: String? = null) {
     fun updateVpn(enabled: Boolean, region: String?): VpnStatusResponse {
         val body = gson.toJson(VpnUpdateRequest(enabled, region)).toRequestBody("application/json".toMediaType())
         val request = authorized("$normalizedBase/devices/me/vpn").put(body).build()
-        return execute(request, VpnStatusResponse::class.java)
+        return execute(request, VpnStatusResponse::class.java, vpnClient)
     }
 
     private fun authorized(url: String): Request.Builder {
@@ -70,8 +75,8 @@ class ControllerClient(baseUrl: String, private val apiToken: String? = null) {
         return builder
     }
 
-    private fun <T> execute(request: Request, clazz: Class<T>): T {
-        client.newCall(request).execute().use { response ->
+    private fun <T> execute(request: Request, clazz: Class<T>, httpClient: OkHttpClient = client): T {
+        httpClient.newCall(request).execute().use { response ->
             val raw = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 throw IllegalStateException(parseErrorMessage(response.code, raw))

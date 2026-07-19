@@ -17,6 +17,10 @@ class Prefs(context: Context) {
         get() = prefs.getString("device_id", null)
         set(value) = prefs.edit().putString("device_id", value).apply()
 
+    var lastAppliedExitNode: String?
+        get() = prefs.getString("last_applied_exit_node", null)
+        set(value) = prefs.edit().putString("last_applied_exit_node", value).apply()
+
     val isRegistered: Boolean
         get() = !apiToken.isNullOrBlank()
 
@@ -24,6 +28,7 @@ class Prefs(context: Context) {
         prefs.edit()
             .remove("api_token")
             .remove("device_id")
+            .remove("last_applied_exit_node")
             .apply()
     }
 }

@@ -2,6 +2,7 @@ package com.tailscalepiacontrol
 
 import android.os.Bundle
 import android.view.View
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,6 +13,8 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.tailscalepiacontrol.databinding.ActivityMainBinding
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -20,6 +23,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: Prefs
     private var regions: List<RegionInfo> = emptyList()
     private var vpnUpdateInProgress = false
+    private var suppressRegionChange = true
+    private var exitNodePollJob: Job? = null
+    private var exitNodeAnnounceDone = false
 
     private val scanQrLauncher = registerForActivityResult(ScanContract()) { result ->
         if (result.contents.isNullOrBlank()) return@registerForActivityResult
@@ -51,12 +57,28 @@ class MainActivity : AppCompatActivity() {
         binding.openTailscaleButton.setOnClickListener { TailscaleHelper.openTailscaleApp(this) }
         binding.testIpButton.setOnClickListener { testIpAndLocation() }
         binding.vpnSwitch.setOnCheckedChangeListener { _, isChecked -> onVpnToggled(isChecked) }
+        binding.regionSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (suppressRegionChange || !binding.vpnSwitch.isChecked || vpnUpdateInProgress) return
+                if (position < 0 || position >= regions.size) return
+                switchRegion(regions[position].id)
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
 
         if (prefs.isRegistered) {
             enableControls()
             refreshStatus()
         } else if (!prefs.controllerUrl.isNullOrBlank()) {
             checkConnection()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (prefs.isRegistered) {
+            refreshStatus()
         }
     }
 
@@ -183,11 +205,13 @@ class MainActivity : AppCompatActivity() {
             }
             regions = response.regions
             val labels = regions.map { "${it.display_name} (${it.hostname})" }
+            suppressRegionChange = true
             binding.regionSpinner.adapter = ArrayAdapter(
                 this@MainActivity,
                 android.R.layout.simple_spinner_dropdown_item,
                 labels
             )
+            suppressRegionChange = false
             true
         } catch (error: Exception) {
             if (!handleApiError(error)) {
@@ -213,20 +237,20 @@ class MainActivity : AppCompatActivity() {
 
                 status.region?.let { regionId ->
                     val index = regions.indexOfFirst { it.id == regionId }
-                    if (index >= 0) binding.regionSpinner.setSelection(index)
+                    if (index >= 0) {
+                        suppressRegionChange = true
+                        binding.regionSpinner.setSelection(index)
+                        suppressRegionChange = false
+                    }
                 }
 
-                val message = buildString {
-                    append("Device: ${status.device_id}\n")
-                    append("Enabled: ${status.enabled}\n")
-                    append("Region: ${status.region ?: "-"}\n")
-                    append("Exit node: ${status.exit_node_hostname ?: "-"}\n")
-                    append("Stack: ${status.stack_status ?: "-"}\n")
-                    status.message?.let { append("\n$it") }
-                }
-                binding.statusText.text = message
+                updateStatusText(status)
+                reconcileExitNode(status)
             } catch (error: Exception) {
                 if (!handleApiError(error)) {
+                    if (prefs.lastAppliedExitNode != null) {
+                        clearExitNode(getString(R.string.controller_unreachable_cleared_exit))
+                    }
                     toast("Status refresh failed: ${error.message}")
                 }
             } finally {
@@ -237,14 +261,25 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun switchRegion(regionId: String) {
+        if (vpnUpdateInProgress) return
+        if (!ensureTailscaleConnected()) {
+            refreshStatus()
+            return
+        }
+        updateVpnState(enabled = true, regionId = regionId, clearExitNodeFirst = true)
+    }
+
     private fun onVpnToggled(enabled: Boolean) {
         if (vpnUpdateInProgress) {
             setVpnSwitchChecked(!enabled)
             return
         }
 
-        val baseUrl = prefs.controllerUrl ?: return
-        val token = prefs.apiToken ?: return
+        if (enabled && !ensureTailscaleConnected()) {
+            setVpnSwitchChecked(false)
+            return
+        }
 
         val region = if (enabled) {
             val index = binding.regionSpinner.selectedItemPosition
@@ -258,6 +293,22 @@ class MainActivity : AppCompatActivity() {
             null
         }
 
+        updateVpnState(enabled = enabled, regionId = region, clearExitNodeFirst = enabled)
+    }
+
+    private fun updateVpnState(enabled: Boolean, regionId: String?, clearExitNodeFirst: Boolean) {
+        val baseUrl = prefs.controllerUrl ?: return
+        val token = prefs.apiToken ?: return
+
+        if (enabled && !ensureTailscaleConnected()) {
+            setVpnSwitchChecked(false)
+            return
+        }
+
+        if (clearExitNodeFirst) {
+            clearExitNode()
+        }
+
         vpnUpdateInProgress = true
         binding.vpnSwitch.isEnabled = false
         binding.regionSpinner.isEnabled = false
@@ -265,17 +316,16 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val status = withContext(Dispatchers.IO) {
-                    ControllerClient(baseUrl, token).updateVpn(enabled, region)
+                    ControllerClient(baseUrl, token).updateVpn(enabled, regionId)
                 }
 
-                if (enabled && !status.exit_node_hostname.isNullOrBlank()) {
-                    if (status.stack_status == "running") {
-                        TailscaleHelper.setExitNode(this@MainActivity, status.exit_node_hostname, status.allow_lan_access)
-                    } else {
-                        toast("Stack starting — refresh in 30s, then exit node will be applied")
-                    }
-                } else if (!enabled) {
-                    TailscaleHelper.setExitNode(this@MainActivity, null, true)
+                if (!enabled) {
+                    clearExitNode()
+                    exitNodePollJob?.cancel()
+                } else {
+                    updateStatusText(status)
+                    reconcileExitNode(status)
+                    scheduleExitNodePolling()
                 }
 
                 refreshStatus()
@@ -289,6 +339,111 @@ class MainActivity : AppCompatActivity() {
                 if (prefs.isRegistered) {
                     binding.vpnSwitch.isEnabled = true
                     binding.regionSpinner.isEnabled = true
+                }
+            }
+        }
+    }
+
+    private fun updateStatusText(status: VpnStatusResponse) {
+        val message = buildString {
+            append("Device: ${status.device_id}\n")
+            append("Enabled: ${status.enabled}\n")
+            append("Region: ${status.region ?: "-"}\n")
+            append("Exit node: ${status.exit_node_hostname ?: "-"}\n")
+            append("Stack: ${status.stack_status ?: "-"}\n")
+            status.message?.let { append("\n$it") }
+        }
+        binding.statusText.text = message
+    }
+
+    private fun ensureTailscaleConnected(): Boolean {
+        if (TailscaleHelper.isConnected(this)) return true
+
+        if (!TailscaleHelper.isInstalled(this)) {
+            toast(getString(R.string.tailscale_not_installed))
+        } else {
+            toast(getString(R.string.tailscale_not_connected))
+        }
+        TailscaleHelper.openTailscaleApp(this)
+        return false
+    }
+
+    private fun clearExitNode(message: String? = null) {
+        if (prefs.lastAppliedExitNode != null) {
+            TailscaleHelper.setExitNode(this, null, true)
+            prefs.lastAppliedExitNode = null
+            exitNodeAnnounceDone = false
+            message?.let { toast(it) }
+        }
+    }
+
+    private fun reconcileExitNode(status: VpnStatusResponse) {
+        val shouldUseExitNode = status.enabled &&
+            status.stack_status == "running" &&
+            !status.exit_node_hostname.isNullOrBlank()
+
+        if (!shouldUseExitNode) {
+            if (prefs.lastAppliedExitNode != null && status.stack_status != "starting") {
+                val message = when {
+                    !status.enabled -> getString(R.string.vpn_disabled_cleared_exit)
+                    status.stack_status == "error" -> getString(R.string.stack_failed_cleared_exit)
+                    else -> getString(R.string.stack_unavailable_cleared_exit)
+                }
+                clearExitNode(message)
+            }
+            return
+        }
+
+        if (!TailscaleHelper.isConnected(this)) return
+        applyExitNodeWhenReady(status)
+    }
+
+    private fun applyExitNodeWhenReady(status: VpnStatusResponse) {
+        if (!status.enabled || status.stack_status != "running") return
+        val hostname = status.exit_node_hostname ?: return
+
+        TailscaleHelper.setExitNode(this, hostname, status.allow_lan_access)
+        prefs.lastAppliedExitNode = hostname
+
+        if (!exitNodeAnnounceDone) {
+            exitNodeAnnounceDone = true
+            toast("Exit node set to $hostname")
+        }
+    }
+
+    private fun scheduleExitNodePolling() {
+        val baseUrl = prefs.controllerUrl ?: return
+        val token = prefs.apiToken ?: return
+
+        exitNodePollJob?.cancel()
+        exitNodePollJob = lifecycleScope.launch {
+            repeat(36) {
+                delay(5000)
+                try {
+                    val status = withContext(Dispatchers.IO) {
+                        ControllerClient(baseUrl, token).getVpnStatus()
+                    }
+                    if (!status.enabled) {
+                        reconcileExitNode(status)
+                        return@launch
+                    }
+
+                    updateStatusText(status)
+                    reconcileExitNode(status)
+
+                    if (status.stack_status == "running" && prefs.lastAppliedExitNode == status.exit_node_hostname) {
+                        return@launch
+                    }
+                    if (status.stack_status == "error") {
+                        toast("Regional stack failed to start")
+                        return@launch
+                    }
+                } catch (error: Exception) {
+                    if (handleApiError(error)) return@launch
+                    if (prefs.lastAppliedExitNode != null) {
+                        clearExitNode(getString(R.string.controller_unreachable_cleared_exit))
+                    }
+                    return@launch
                 }
             }
         }
@@ -326,6 +481,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun resetRegistration() {
+        exitNodePollJob?.cancel()
+        clearExitNode()
         prefs.clearRegistration()
         binding.vpnSwitch.isEnabled = false
         setVpnSwitchChecked(false)

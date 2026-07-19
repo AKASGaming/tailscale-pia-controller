@@ -13,5 +13,11 @@
     <string name="refresh_status">Refresh status</string>
     <string name="open_tailscale">Open Tailscale</string>
     <string name="test_ip">Test IP &amp; location</string>
+    <string name="tailscale_not_installed">Install Tailscale before enabling PIA</string>
+    <string name="tailscale_not_connected">Connect Tailscale first, then try again</string>
+    <string name="vpn_disabled_cleared_exit">VPN disabled — cleared exit node</string>
+    <string name="stack_failed_cleared_exit">Regional stack failed — cleared exit node</string>
+    <string name="stack_unavailable_cleared_exit">Exit node unavailable — cleared exit node</string>
+    <string name="controller_unreachable_cleared_exit">Controller unreachable — cleared exit node</string>
     <string name="status_idle">VPN off — Tailscale stays connected</string>
 </resources>

@@ -7,9 +7,16 @@ from datetime import datetime
 from fastapi import BackgroundTasks, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.docker_manager import ensure_region_stack, get_stack_status, release_region_stack, stop_idle_stacks
+from app.docker_manager import (
+    acquire_region_stack,
+    get_stack_status,
+    release_region_stack,
+    start_region_stack_docker,
+    stop_all_stacks,
+    stop_idle_stacks,
+)
 from app.database import SessionLocal
-from app.models import Device, VpnSession
+from app.models import Device, RegionStack, VpnSession
 from app.regions import load_regions, region_display_label
 from app.schemas import VpnStatusResponse, VpnUpdateRequest
 
@@ -63,7 +70,7 @@ def apply_vpn_update(
         if previous_region and previous_region != payload.region:
             release_region_stack(db, previous_region)
 
-        stack = ensure_region_stack(db, payload.region)
+        stack = acquire_region_stack(db, payload.region)
         region = regions[payload.region]
 
         session.enabled = True
@@ -72,11 +79,20 @@ def apply_vpn_update(
         session.updated_at = datetime.utcnow()
         db.commit()
 
+        if stack.status != "running":
+            if background_tasks is not None:
+                background_tasks.add_task(start_region_stack_docker, payload.region)
+            else:
+                start_region_stack_docker(payload.region)
+
+        stack = db.get(RegionStack, payload.region) or stack
+        db.refresh(stack)
+
         message = "VPN enabled."
         if stack.status == "starting":
             message = (
                 f"Starting {region.display_name} exit node ({region.hostname}). "
-                "Wait until stack is running, then select this exit node in Tailscale."
+                "The app will apply the Tailscale exit node when the stack is ready."
             )
         elif stack.status == "error":
             message = f"Failed to start stack: {stack.error_message or 'unknown error'}"
@@ -154,3 +170,16 @@ def list_device_summaries(db: Session) -> list[dict]:
             }
         )
     return summaries
+
+
+def shutdown_all_devices(db: Session) -> int:
+    """Disable VPN on every device and stop all regional stacks (controller shutdown)."""
+    sessions = db.query(VpnSession).filter(VpnSession.enabled.is_(True)).all()
+    disabled = len(sessions)
+    for session in sessions:
+        session.enabled = False
+        session.region = None
+        session.exit_node_hostname = None
+    db.commit()
+    stop_all_stacks(db)
+    return disabled

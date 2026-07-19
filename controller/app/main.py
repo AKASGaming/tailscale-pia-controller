@@ -43,6 +43,7 @@ from app.vpn_service import (
     get_or_create_session,
     idle_cleanup,
     list_device_summaries,
+    shutdown_all_devices,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -70,6 +71,15 @@ async def lifespan(_: FastAPI):
     else:
         logger.info("Pairing secret is disabled — device registration is open")
     yield
+    logger.info("Controller shutting down — disabling VPN for all devices and stopping stacks")
+    db = SessionLocal()
+    try:
+        disabled = shutdown_all_devices(db)
+        logger.info("Shutdown complete — disabled %s device VPN session(s)", disabled)
+    except Exception as exc:
+        logger.error("Shutdown cleanup failed: %s", exc)
+    finally:
+        db.close()
 
 
 app = FastAPI(

@@ -176,12 +176,11 @@ def _start_tailscale(region: RegionConfig, data_dir: str) -> None:
     )
 
 
-def ensure_region_stack(db: Session, region_id: str) -> RegionStack:
+def acquire_region_stack(db: Session, region_id: str) -> RegionStack:
     regions = load_regions()
     if region_id not in regions:
         raise KeyError(f"Unknown region: {region_id}")
 
-    region = regions[region_id]
     stack = db.get(RegionStack, region_id)
     region_ids = list(regions.keys())
     ts_port = _region_port(region_ids.index(region_id))
@@ -199,43 +198,81 @@ def ensure_region_stack(db: Session, region_id: str) -> RegionStack:
         db.refresh(stack)
         return stack
 
-    stack.status = "starting"
-    stack.error_message = None
-    db.commit()
-
-    settings = get_settings()
-    data_dir = _host_data_dir(region_id)
-    container_data_root = settings.runtime_dir / "data" / region_id
-    (container_data_root / "gluetun").mkdir(parents=True, exist_ok=True)
-    (container_data_root / "tailscale").mkdir(parents=True, exist_ok=True)
-
-    logger.info("Using host data directory: %s", data_dir)
-
-    try:
-        if not settings.pia_user or not settings.pia_pass:
-            raise RuntimeError("PIA_USER and PIA_PASS must be set in the controller environment")
-        if not settings.ts_authkey:
-            raise RuntimeError("TS_AUTHKEY must be set in the controller environment")
-
-        _start_gluetun(region, ts_port, data_dir)
-        if not _wait_for_healthy(gluetun_name):
-            logs = _run_docker("logs", "--tail", "40", gluetun_name, check=False)
-            snippet = (logs.stderr or logs.stdout or "no logs").strip()[-1500:]
-            raise RuntimeError(f"Gluetun failed to become healthy. Recent logs:\n{snippet}")
-
-        _start_tailscale(region, data_dir)
-        stack.status = "running"
-    except (subprocess.CalledProcessError, RuntimeError) as exc:
-        stack.status = "error"
-        if isinstance(exc, subprocess.CalledProcessError):
-            stack.error_message = (exc.stderr or exc.stdout or str(exc))[:2000]
-            logger.error("Failed to start region %s: %s", region_id, stack.error_message)
-        else:
-            stack.error_message = str(exc)[:2000]
-            logger.error("Failed to start region %s: %s", region_id, stack.error_message)
+    if stack.status != "starting":
+        stack.status = "starting"
+        stack.error_message = None
 
     db.commit()
     db.refresh(stack)
+    return stack
+
+
+def start_region_stack_docker(region_id: str) -> None:
+    from app.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        regions = load_regions()
+        if region_id not in regions:
+            logger.error("Cannot start unknown region stack: %s", region_id)
+            return
+
+        region = regions[region_id]
+        stack = db.get(RegionStack, region_id)
+        if stack is None:
+            logger.error("Region stack record missing for %s", region_id)
+            return
+
+        gluetun_name = f"gluetun-{region_id}"
+        if stack.status == "running" and _container_exists(gluetun_name) and _container_healthy(gluetun_name):
+            return
+
+        stack.status = "starting"
+        stack.error_message = None
+        db.commit()
+
+        settings = get_settings()
+        region_ids = list(regions.keys())
+        ts_port = _region_port(region_ids.index(region_id))
+        data_dir = _host_data_dir(region_id)
+        container_data_root = settings.runtime_dir / "data" / region_id
+        (container_data_root / "gluetun").mkdir(parents=True, exist_ok=True)
+        (container_data_root / "tailscale").mkdir(parents=True, exist_ok=True)
+
+        logger.info("Starting docker stack for region %s using %s", region_id, data_dir)
+
+        try:
+            if not settings.pia_user or not settings.pia_pass:
+                raise RuntimeError("PIA_USER and PIA_PASS must be set in the controller environment")
+            if not settings.ts_authkey:
+                raise RuntimeError("TS_AUTHKEY must be set in the controller environment")
+
+            _start_gluetun(region, ts_port, data_dir)
+            if not _wait_for_healthy(gluetun_name):
+                logs = _run_docker("logs", "--tail", "40", gluetun_name, check=False)
+                snippet = (logs.stderr or logs.stdout or "no logs").strip()[-1500:]
+                raise RuntimeError(f"Gluetun failed to become healthy. Recent logs:\n{snippet}")
+
+            _start_tailscale(region, data_dir)
+            stack.status = "running"
+        except (subprocess.CalledProcessError, RuntimeError) as exc:
+            stack.status = "error"
+            if isinstance(exc, subprocess.CalledProcessError):
+                stack.error_message = (exc.stderr or exc.stdout or str(exc))[:2000]
+            else:
+                stack.error_message = str(exc)[:2000]
+            logger.error("Failed to start region %s: %s", region_id, stack.error_message)
+
+        db.commit()
+    finally:
+        db.close()
+
+
+def ensure_region_stack(db: Session, region_id: str) -> RegionStack:
+    stack = acquire_region_stack(db, region_id)
+    if stack.status != "running":
+        start_region_stack_docker(region_id)
+        db.refresh(stack)
     return stack
 
 
@@ -250,6 +287,21 @@ def release_region_stack(db: Session, region_id: str | None) -> None:
     stack.ref_count = max(0, stack.ref_count - 1)
     stack.last_used_at = datetime.utcnow()
     db.commit()
+
+
+def stop_all_stacks(db: Session) -> int:
+    stopped = 0
+    stacks = db.query(RegionStack).all()
+    for stack in stacks:
+        if stack.status in {"running", "starting", "error"}:
+            _remove_container(f"tailscale-exit-{stack.region}")
+            _remove_container(f"gluetun-{stack.region}")
+            stopped += 1
+        stack.status = "stopped"
+        stack.ref_count = 0
+        stack.error_message = None
+    db.commit()
+    return stopped
 
 
 def stop_idle_stacks(db: Session) -> int:
