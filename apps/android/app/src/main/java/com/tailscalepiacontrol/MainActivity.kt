@@ -26,6 +26,9 @@ class MainActivity : AppCompatActivity() {
     private var suppressRegionChange = true
     private var exitNodePollJob: Job? = null
     private var exitNodeAnnounceDone = false
+    private var activeRegionId: String? = null
+    private var regionAdapter: ArrayAdapter<String>? = null
+    private var cachedRegionIds: List<String>? = null
 
     private val scanQrLauncher = registerForActivityResult(ScanContract()) { result ->
         if (result.contents.isNullOrBlank()) return@registerForActivityResult
@@ -63,7 +66,9 @@ class MainActivity : AppCompatActivity() {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 if (suppressRegionChange || !binding.vpnSwitch.isChecked || vpnUpdateInProgress) return
                 if (position < 0 || position >= regions.size) return
-                switchRegion(regions[position].id)
+                val regionId = regions[position].id
+                if (regionId == activeRegionId) return
+                switchRegion(regionId)
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
@@ -71,7 +76,6 @@ class MainActivity : AppCompatActivity() {
 
         if (prefs.isRegistered) {
             enableControls()
-            refreshStatus()
         } else if (!prefs.controllerUrl.isNullOrBlank()) {
             checkConnection()
         }
@@ -220,13 +224,20 @@ class MainActivity : AppCompatActivity() {
             }
             regions = response.regions
             val labels = regions.map { "${it.display_name} (${it.hostname})" }
+            val regionIds = regions.map { it.id }
+
             suppressRegionChange = true
-            binding.regionSpinner.adapter = ArrayAdapter(
-                this@MainActivity,
-                android.R.layout.simple_spinner_dropdown_item,
-                labels
-            )
-            suppressRegionChange = false
+            if (cachedRegionIds != regionIds) {
+                cachedRegionIds = regionIds
+                regionAdapter = ArrayAdapter(
+                    this@MainActivity,
+                    android.R.layout.simple_spinner_dropdown_item,
+                    labels
+                )
+                binding.regionSpinner.adapter = regionAdapter
+            }
+            selectRegionInSpinner(activeRegionId)
+            binding.regionSpinner.post { suppressRegionChange = false }
             true
         } catch (error: Exception) {
             if (!handleApiError(error)) {
@@ -248,18 +259,7 @@ class MainActivity : AppCompatActivity() {
                 val status = withContext(Dispatchers.IO) {
                     ControllerClient(baseUrl, token).getVpnStatus()
                 }
-                setVpnSwitchChecked(status.enabled)
-
-                status.region?.let { regionId ->
-                    val index = regions.indexOfFirst { it.id == regionId }
-                    if (index >= 0) {
-                        suppressRegionChange = true
-                        binding.regionSpinner.setSelection(index)
-                        suppressRegionChange = false
-                    }
-                }
-
-                updateStatusText(status)
+                applyStatusToUi(status)
                 reconcileExitNode(status)
             } catch (error: Exception) {
                 if (!handleApiError(error)) {
@@ -278,9 +278,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun switchRegion(regionId: String) {
         if (vpnUpdateInProgress) return
+        if (regionId == activeRegionId) {
+            AppLogger.info("MainActivity", "switchRegion ignored — already on $regionId")
+            return
+        }
         AppLogger.info("MainActivity", "switchRegion regionId=$regionId")
         if (!ensureTailscaleConnected()) {
-            refreshStatus()
+            selectRegionInSpinner(activeRegionId)
             return
         }
         updateVpnState(enabled = true, regionId = regionId, clearExitNodeFirst = true)
@@ -337,17 +341,19 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 if (!enabled) {
+                    activeRegionId = null
                     clearExitNode()
                     exitNodePollJob?.cancel()
                 } else {
+                    activeRegionId = status.region
                     updateStatusText(status)
+                    selectRegionInSpinner(status.region)
                     reconcileExitNode(status)
                     scheduleExitNodePolling()
                 }
-
-                refreshStatus()
             } catch (error: Exception) {
                 setVpnSwitchChecked(!enabled)
+                selectRegionInSpinner(activeRegionId)
                 if (!handleApiError(error)) {
                     toast("VPN update failed: ${error.message}")
                 }
@@ -359,6 +365,22 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun applyStatusToUi(status: VpnStatusResponse) {
+        activeRegionId = status.region
+        setVpnSwitchChecked(status.enabled)
+        selectRegionInSpinner(status.region)
+        updateStatusText(status)
+    }
+
+    private fun selectRegionInSpinner(regionId: String?) {
+        if (regionId.isNullOrBlank()) return
+        val index = regions.indexOfFirst { it.id == regionId }
+        if (index < 0) return
+        suppressRegionChange = true
+        binding.regionSpinner.setSelection(index)
+        binding.regionSpinner.post { suppressRegionChange = false }
     }
 
     private fun updateStatusText(status: VpnStatusResponse) {
@@ -422,6 +444,7 @@ class MainActivity : AppCompatActivity() {
     private fun applyExitNodeWhenReady(status: VpnStatusResponse) {
         if (!status.enabled || status.stack_status != "running") return
         val hostname = status.exit_node_hostname ?: return
+        if (prefs.lastAppliedExitNode == hostname) return
 
         TailscaleHelper.setExitNode(this, hostname, status.allow_lan_access)
         prefs.lastAppliedExitNode = hostname
@@ -445,10 +468,12 @@ class MainActivity : AppCompatActivity() {
                         ControllerClient(baseUrl, token).getVpnStatus()
                     }
                     if (!status.enabled) {
+                        activeRegionId = null
                         reconcileExitNode(status)
                         return@launch
                     }
 
+                    activeRegionId = status.region
                     updateStatusText(status)
                     reconcileExitNode(status)
 
@@ -504,6 +529,9 @@ class MainActivity : AppCompatActivity() {
     private fun resetRegistration() {
         exitNodePollJob?.cancel()
         clearExitNode()
+        activeRegionId = null
+        cachedRegionIds = null
+        regionAdapter = null
         prefs.clearRegistration()
         binding.vpnSwitch.isEnabled = false
         setVpnSwitchChecked(false)
