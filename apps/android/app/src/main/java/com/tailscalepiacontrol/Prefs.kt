@@ -9,6 +9,10 @@ class Prefs(context: Context) {
         get() = prefs.getString("controller_url", null)
         set(value) = prefs.edit().putString("controller_url", value).apply()
 
+    var deviceName: String?
+        get() = prefs.getString("device_name", null)
+        set(value) = prefs.edit().putString("device_name", value).apply()
+
     var apiToken: String?
         get() = prefs.getString("api_token", null)
         set(value) = prefs.edit().putString("api_token", value).apply()
@@ -30,5 +34,9 @@ class Prefs(context: Context) {
             .remove("device_id")
             .remove("last_applied_exit_node")
             .apply()
+    }
+
+    fun clearAll() {
+        prefs.edit().clear().apply()
     }
 }

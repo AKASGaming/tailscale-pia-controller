@@ -69,6 +69,12 @@ class ControllerClient(baseUrl: String, private val apiToken: String? = null) {
         return execute(request, VpnStatusResponse::class.java, vpnClient)
     }
 
+    fun updateDeviceName(name: String): DeviceUpdateResponse {
+        val body = gson.toJson(mapOf("name" to name)).toRequestBody("application/json".toMediaType())
+        val request = authorized("$normalizedBase/devices/me").patch(body).build()
+        return execute(request, DeviceUpdateResponse::class.java)
+    }
+
     private fun authorized(url: String): Request.Builder {
         val builder = Request.Builder().url(url)
         require(!apiToken.isNullOrBlank()) { "Device is not registered" }

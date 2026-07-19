@@ -1,11 +1,13 @@
 package com.tailscalepiacontrol
 
+import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.gson.JsonParser
@@ -52,11 +54,17 @@ class MainActivity : AppCompatActivity() {
         prefs = Prefs(this)
         AppLogger.info("MainActivity", "App started")
 
-        prefs.controllerUrl?.let { binding.controllerUrlInput.setText(it) }
+        restoreSetupFields()
+
+        setSupportActionBar(binding.toolbar)
+        binding.versionText.text = getString(R.string.version_label, BuildConfig.VERSION_NAME)
 
         binding.checkConnectionButton.setOnClickListener { checkConnection() }
         binding.scanQrButton.setOnClickListener { startQrScan() }
-        binding.registerButton.setOnClickListener { registerDevice() }
+        binding.registerButton.setOnClickListener { onRegisterClicked() }
+        binding.saveNameButton.setOnClickListener { saveDeviceName() }
+        binding.resetDataButton.setOnClickListener { confirmResetAllData() }
+        binding.setupToggle.setOnClickListener { toggleSetupSection() }
         binding.refreshButton.setOnClickListener { refreshStatus() }
         binding.openTailscaleButton.setOnClickListener { TailscaleHelper.openTailscaleApp(this) }
         binding.testIpButton.setOnClickListener { testIpAndLocation() }
@@ -74,10 +82,12 @@ class MainActivity : AppCompatActivity() {
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
 
+        updateRegistrationUi()
         if (prefs.isRegistered) {
-            enableControls()
-        } else if (!prefs.controllerUrl.isNullOrBlank()) {
-            checkConnection()
+            enableVpnControls()
+            refreshStatus()
+        } else {
+            showIdleStatus()
         }
     }
 
@@ -86,6 +96,29 @@ class MainActivity : AppCompatActivity() {
         AppLogger.info("MainActivity", "onResume registered=${prefs.isRegistered}")
         if (prefs.isRegistered) {
             refreshStatus()
+        }
+    }
+
+    override fun onPause() {
+        persistSetupFields()
+        super.onPause()
+    }
+
+    private fun restoreSetupFields() {
+        binding.controllerUrlInput.setText(prefs.controllerUrl.orEmpty())
+        binding.deviceNameInput.setText(
+            prefs.deviceName?.takeIf { it.isNotBlank() } ?: getString(R.string.device_name_default)
+        )
+    }
+
+    private fun persistSetupFields() {
+        val url = binding.controllerUrlInput.text?.toString()?.trim().orEmpty()
+        val name = binding.deviceNameInput.text?.toString()?.trim().orEmpty()
+        if (url.isNotBlank()) {
+            prefs.controllerUrl = url
+        }
+        if (name.isNotBlank()) {
+            prefs.deviceName = name
         }
     }
 
@@ -127,15 +160,12 @@ class MainActivity : AppCompatActivity() {
 
             if (url.isNotBlank()) {
                 binding.controllerUrlInput.setText(url)
-                prefs.controllerUrl = url
             }
             if (code.isNotBlank()) {
                 binding.pairingCodeInput.setText(code.uppercase())
             }
-            toast("Pairing details loaded from QR code")
-            if (url.isNotBlank()) {
-                checkConnection()
-            }
+            persistSetupFields()
+            toast(getString(R.string.qr_loaded))
         } catch (_: Exception) {
             toast("Unrecognized QR code format")
         }
@@ -178,7 +208,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun registerDevice() {
+    private fun onRegisterClicked() {
+        if (prefs.isRegistered) {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.reregister_title)
+                .setMessage(R.string.reregister_message)
+                .setPositiveButton(R.string.reregister) { _, _ -> registerDevice(forceNew = true) }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        } else {
+            registerDevice(forceNew = false)
+        }
+    }
+
+    private fun registerDevice(forceNew: Boolean) {
         val baseUrl = binding.controllerUrlInput.text?.toString()?.trim().orEmpty()
         val name = binding.deviceNameInput.text?.toString()?.trim().orEmpty()
         val pairingCode = binding.pairingCodeInput.text?.toString()?.trim().orEmpty().ifBlank { null }
@@ -199,19 +242,86 @@ class MainActivity : AppCompatActivity() {
                     return@launch
                 }
 
+                if (forceNew) {
+                    prefs.clearRegistration()
+                }
+
                 val response = withContext(Dispatchers.IO) {
                     ControllerClient(baseUrl).register(name, "android", null, pairingCode)
                 }
                 prefs.controllerUrl = baseUrl
+                prefs.deviceName = name
                 prefs.apiToken = response.api_token
                 prefs.deviceId = response.device_id
+                binding.deviceNameInput.setText(response.name)
                 toast("Registered as ${response.name}")
-                enableControls()
+                updateRegistrationUi()
+                enableVpnControls()
                 refreshStatus()
             } catch (error: Exception) {
                 toast("Registration failed: ${error.message}")
             }
         }
+    }
+
+    private fun saveDeviceName() {
+        val baseUrl = prefs.controllerUrl
+        val token = prefs.apiToken
+        val name = binding.deviceNameInput.text?.toString()?.trim().orEmpty()
+
+        if (!prefs.isRegistered || baseUrl.isNullOrBlank() || token.isNullOrBlank()) {
+            toast("Register the device before saving the name")
+            return
+        }
+        if (name.isBlank()) {
+            toast("Device name is required")
+            return
+        }
+
+        lifecycleScope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) {
+                    ControllerClient(baseUrl, token).updateDeviceName(name)
+                }
+                prefs.deviceName = response.name
+                binding.deviceNameInput.setText(response.name)
+                toast(getString(R.string.device_name_saved))
+            } catch (error: Exception) {
+                if (!handleApiError(error)) {
+                    toast("Failed to save device name: ${error.message}")
+                }
+            }
+        }
+    }
+
+    private fun confirmResetAllData() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.reset_all_data_title)
+            .setMessage(R.string.reset_all_data_message)
+            .setPositiveButton(R.string.reset_all_data_confirm) { _, _ -> resetAllData() }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun resetAllData() {
+        exitNodePollJob?.cancel()
+        clearExitNode()
+        activeRegionId = null
+        cachedRegionIds = null
+        regionAdapter = null
+        prefs.clearAll()
+        binding.controllerUrlInput.setText("")
+        binding.deviceNameInput.setText(getString(R.string.device_name_default))
+        binding.pairingCodeInput.setText("")
+        binding.pairingCodeLayout.visibility = View.GONE
+        binding.pairingStatusText.text = getString(R.string.pairing_status_default)
+        binding.vpnSwitch.isEnabled = false
+        setVpnSwitchChecked(false)
+        binding.regionSpinner.isEnabled = false
+        binding.refreshButton.isEnabled = false
+        showIdleStatus()
+        updateRegistrationUi()
+        toast(getString(R.string.reset_all_data_done))
     }
 
     private suspend fun loadRegions(): Boolean {
@@ -346,7 +456,7 @@ class MainActivity : AppCompatActivity() {
                     exitNodePollJob?.cancel()
                 } else {
                     activeRegionId = status.region
-                    updateStatusText(status)
+                    updateStatusHero(status)
                     selectRegionInSpinner(status.region)
                     reconcileExitNode(status)
                     scheduleExitNodePolling()
@@ -371,7 +481,7 @@ class MainActivity : AppCompatActivity() {
         activeRegionId = status.region
         setVpnSwitchChecked(status.enabled)
         selectRegionInSpinner(status.region)
-        updateStatusText(status)
+        updateStatusHero(status)
     }
 
     private fun selectRegionInSpinner(regionId: String?) {
@@ -383,16 +493,60 @@ class MainActivity : AppCompatActivity() {
         binding.regionSpinner.post { suppressRegionChange = false }
     }
 
-    private fun updateStatusText(status: VpnStatusResponse) {
-        val message = buildString {
-            append("Device: ${status.device_id}\n")
-            append("Enabled: ${status.enabled}\n")
-            append("Region: ${status.region ?: "-"}\n")
-            append("Exit node: ${status.exit_node_hostname ?: "-"}\n")
+    private fun updateStatusHero(status: VpnStatusResponse?) {
+        if (status == null || !status.enabled) {
+            binding.statusTitle.text = getString(R.string.vpn_off_title)
+            binding.statusSubtitle.text = getString(R.string.vpn_off_subtitle)
+            binding.statusHeroCard.setCardBackgroundColor(getColor(R.color.hero_disconnected))
+            setStatusDotColor(R.color.status_disconnected)
+            binding.statusDetails.visibility = View.GONE
+            return
+        }
+
+        when (status.stack_status) {
+            "running" -> {
+                binding.statusTitle.text = getString(R.string.vpn_on_title)
+                val regionLabel = regions.find { it.id == status.region }?.display_name ?: status.region ?: "-"
+                binding.statusSubtitle.text = "$regionLabel · ${status.exit_node_hostname ?: "exit node pending"}"
+                binding.statusHeroCard.setCardBackgroundColor(getColor(R.color.hero_connected))
+                setStatusDotColor(R.color.success)
+            }
+            "starting" -> {
+                binding.statusTitle.text = getString(R.string.vpn_starting_title)
+                binding.statusSubtitle.text = status.message ?: getString(R.string.vpn_starting_subtitle)
+                binding.statusHeroCard.setCardBackgroundColor(getColor(R.color.hero_starting))
+                setStatusDotColor(R.color.warning)
+            }
+            "error" -> {
+                binding.statusTitle.text = getString(R.string.vpn_error_title)
+                binding.statusSubtitle.text = status.message ?: getString(R.string.vpn_error_subtitle)
+                binding.statusHeroCard.setCardBackgroundColor(getColor(R.color.surface_container_high))
+                setStatusDotColor(R.color.error)
+            }
+            else -> {
+                binding.statusTitle.text = getString(R.string.vpn_on_title)
+                binding.statusSubtitle.text = status.region ?: getString(R.string.vpn_starting_subtitle)
+                binding.statusHeroCard.setCardBackgroundColor(getColor(R.color.hero_disconnected))
+                setStatusDotColor(R.color.status_disconnected)
+            }
+        }
+
+        val details = buildString {
+            append("Device ${status.device_id.take(8)}…\n")
             append("Stack: ${status.stack_status ?: "-"}\n")
+            append("Exit node: ${status.exit_node_hostname ?: "-"}")
             status.message?.let { append("\n$it") }
         }
-        binding.statusText.text = message
+        binding.statusDetails.text = details
+        binding.statusDetails.visibility = View.VISIBLE
+    }
+
+    private fun showIdleStatus() {
+        updateStatusHero(null)
+    }
+
+    private fun setStatusDotColor(colorRes: Int) {
+        binding.statusDot.backgroundTintList = ColorStateList.valueOf(getColor(colorRes))
     }
 
     private fun ensureTailscaleConnected(): Boolean {
@@ -474,7 +628,7 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     activeRegionId = status.region
-                    updateStatusText(status)
+                    updateStatusHero(status)
                     reconcileExitNode(status)
 
                     if (status.stack_status == "running" && prefs.lastAppliedExitNode == status.exit_node_hostname) {
@@ -506,10 +660,12 @@ class MainActivity : AppCompatActivity() {
             try {
                 binding.testIpButton.isEnabled = false
                 val result = withContext(Dispatchers.IO) { IpLookup.fetch() }
-                binding.statusText.text = IpLookup.format(result)
+                binding.statusDetails.text = IpLookup.format(result)
+                binding.statusDetails.visibility = View.VISIBLE
                 toast("IP lookup complete")
             } catch (error: Exception) {
-                binding.statusText.text = "IP lookup failed: ${error.message}"
+                binding.statusDetails.text = "IP lookup failed: ${error.message}"
+                binding.statusDetails.visibility = View.VISIBLE
                 toast("IP lookup failed: ${error.message}")
             } finally {
                 binding.testIpButton.isEnabled = true
@@ -537,25 +693,35 @@ class MainActivity : AppCompatActivity() {
         setVpnSwitchChecked(false)
         binding.regionSpinner.isEnabled = false
         binding.refreshButton.isEnabled = false
-        binding.registerButton.visibility = View.VISIBLE
-        binding.checkConnectionButton.visibility = View.VISIBLE
-        binding.scanQrButton.visibility = View.VISIBLE
-        binding.deviceNameInput.isEnabled = true
-        binding.pairingCodeInput.isEnabled = true
-        binding.controllerUrlInput.isEnabled = true
-        binding.statusText.text = getString(R.string.status_idle)
+        updateRegistrationUi()
+        showIdleStatus()
     }
 
-    private fun enableControls() {
+    private fun toggleSetupSection() {
+        val visible = binding.setupContent.visibility == View.VISIBLE
+        binding.setupContent.visibility = if (visible) View.GONE else View.VISIBLE
+        binding.setupToggle.text = getString(if (visible) R.string.show_setup else R.string.hide_setup)
+    }
+
+    private fun updateRegistrationUi() {
+        val registered = prefs.isRegistered
+        binding.registerButton.text = getString(if (registered) R.string.reregister else R.string.register)
+        binding.saveNameButton.visibility = if (registered) View.VISIBLE else View.GONE
+        binding.connectionChip.text = getString(
+            if (registered) R.string.status_registered else R.string.status_not_registered
+        )
+        binding.setupToggle.visibility = if (registered) View.VISIBLE else View.GONE
+        if (!registered) {
+            binding.setupContent.visibility = View.VISIBLE
+            binding.setupToggle.text = getString(R.string.hide_setup)
+        }
+    }
+
+    private fun enableVpnControls() {
         binding.vpnSwitch.isEnabled = true
         binding.regionSpinner.isEnabled = true
         binding.refreshButton.isEnabled = true
-        binding.registerButton.visibility = View.GONE
-        binding.checkConnectionButton.visibility = View.GONE
-        binding.scanQrButton.visibility = View.GONE
-        binding.deviceNameInput.isEnabled = false
-        binding.pairingCodeInput.isEnabled = false
-        binding.controllerUrlInput.isEnabled = false
+        updateRegistrationUi()
     }
 
     private fun toast(message: String) {

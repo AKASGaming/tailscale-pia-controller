@@ -1,5 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_500">#6750A4</color>
-    <color name="purple_700">#4F378B</color>
+    <color name="primary">#8B7CF8</color>
+    <color name="purple_500">#8B7CF8</color>
+    <color name="purple_700">#6D5BD0</color>
+    <color name="primary_container">#2A2448</color>
+    <color name="on_primary">#FFFFFF</color>
+    <color name="surface">#0F1117</color>
+    <color name="surface_container">#171B24</color>
+    <color name="surface_container_high">#1F2533</color>
+    <color name="on_surface">#E8ECF4</color>
+    <color name="on_surface_variant">#9AA6BD</color>
+    <color name="outline">#2B3344</color>
+    <color name="success">#4ADE80</color>
+    <color name="status_disconnected">#9AA6BD</color>
+    <color name="warning">#FBBF24</color>
+    <color name="error">#F87171</color>
+    <color name="hero_connected">#1A2E24</color>
+    <color name="hero_disconnected">#1C2130</color>
+    <color name="hero_starting">#2A2618</color>
 </resources>

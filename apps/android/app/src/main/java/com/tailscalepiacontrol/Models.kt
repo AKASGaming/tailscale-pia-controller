@@ -17,6 +17,11 @@ data class DeviceRegisterResponse(
     val name: String
 )
 
+data class DeviceUpdateResponse(
+    val device_id: String,
+    val name: String
+)
+
 data class VpnStatusResponse(
     val device_id: String,
     val enabled: Boolean,

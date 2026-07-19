@@ -19,6 +19,15 @@ class DeviceRegisterResponse(BaseModel):
     name: str
 
 
+class DeviceUpdateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+
+
+class DeviceUpdateResponse(BaseModel):
+    device_id: str
+    name: str
+
+
 class VpnUpdateRequest(BaseModel):
     enabled: bool
     region: str | None = None

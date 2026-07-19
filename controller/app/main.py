@@ -6,11 +6,13 @@ import asyncio
 import io
 import logging
 from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from app import __version__
@@ -27,6 +29,8 @@ from app.regions import load_regions
 from app.schemas import (
     DeviceRegisterRequest,
     DeviceRegisterResponse,
+    DeviceUpdateRequest,
+    DeviceUpdateResponse,
     DeviceSummary,
     DeviceListResponse,
     DashboardStateResponse,
@@ -114,6 +118,9 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
 )
+
+static_dir = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 def _region_dicts(db: Session) -> list[dict]:
@@ -255,6 +262,18 @@ def register_device(payload: DeviceRegisterRequest, db: Session = Depends(get_db
     db.refresh(device)
 
     return DeviceRegisterResponse(device_id=device.id, api_token=device.api_token, name=device.name)
+
+
+@app.patch("/devices/me", response_model=DeviceUpdateResponse)
+def update_device(
+    payload: DeviceUpdateRequest,
+    device: Device = Depends(get_current_device),
+    db: Session = Depends(get_db),
+) -> DeviceUpdateResponse:
+    device.name = payload.name
+    db.commit()
+    db.refresh(device)
+    return DeviceUpdateResponse(device_id=device.id, name=device.name)
 
 
 @app.get("/devices/me/vpn", response_model=VpnStatusResponse)
