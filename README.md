@@ -60,7 +60,9 @@ IDLE_SHUTDOWN_MINUTES=30
 HOST_RUNTIME_DIR=/absolute/path/to/tailscale-pia-controller/runtime
 ```
 
-> **Important:** `HOST_RUNTIME_DIR` must be the absolute path to the `runtime/` folder on your Linux Docker host (e.g. `/home/you/tailscale-pia-controller/runtime`). Regional Gluetun stacks bind-mount data from this path.
+If regional stacks fail to start, check controller logs for `Resolved host runtime directory` and ensure `PIA_USER`, `PIA_PASS`, and `TS_AUTHKEY` are set in `.env`.
+
+Optional: set `HOST_RUNTIME_DIR` to the absolute host path of the `runtime/` folder if auto-detection fails.
 
 ### 2. Start the controller
 

@@ -15,7 +15,9 @@ from app.auth import get_current_device, verify_pairing_secret
 from app.dashboard import render_dashboard
 from app.database import Base, SessionLocal, engine, get_db
 from app.docker_manager import ensure_region_stack, get_stack_status, release_region_stack, stop_idle_stacks
+from app.host_paths import resolve_host_path
 from app.models import Device, RegionStack, VpnSession
+from app.config import get_settings
 from app.pairing import pairing_instructions, pairing_required, pairing_secret_value
 from app.regions import load_regions
 from app.schemas import (
@@ -36,6 +38,19 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
+    settings = get_settings()
+    host_runtime = resolve_host_path(settings.runtime_dir)
+    logger.info("Resolved host runtime directory: %s", host_runtime)
+    try:
+        import subprocess
+
+        result = subprocess.run(["docker", "version", "--format", "{{.Server.Version}}"], capture_output=True, text=True)
+        if result.returncode == 0:
+            logger.info("Docker daemon reachable (server %s)", result.stdout.strip())
+        else:
+            logger.error("Docker daemon not reachable: %s", (result.stderr or result.stdout).strip())
+    except Exception as exc:
+        logger.error("Docker check failed: %s", exc)
     if pairing_required():
         logger.info("Pairing secret is ENABLED — view it at http://0.0.0.0:8090/")
     else:
