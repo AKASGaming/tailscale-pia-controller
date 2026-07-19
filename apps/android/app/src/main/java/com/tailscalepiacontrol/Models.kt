@@ -32,3 +32,9 @@ data class VpnUpdateRequest(
     val enabled: Boolean,
     val region: String?
 )
+
+data class PairingInfoResponse(
+    val required: Boolean,
+    val instructions: String,
+    val secret: String?
+)

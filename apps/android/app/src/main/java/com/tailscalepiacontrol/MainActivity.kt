@@ -24,6 +24,7 @@ class MainActivity : AppCompatActivity() {
 
         prefs.controllerUrl?.let { binding.controllerUrlInput.setText(it) }
 
+        binding.checkConnectionButton.setOnClickListener { checkConnection() }
         binding.registerButton.setOnClickListener { registerDevice() }
         binding.refreshButton.setOnClickListener { refreshStatus() }
         binding.openTailscaleButton.setOnClickListener { TailscaleHelper.openTailscaleApp(this) }
@@ -33,6 +34,44 @@ class MainActivity : AppCompatActivity() {
             enableControls()
             loadRegions()
             refreshStatus()
+        } else if (!prefs.controllerUrl.isNullOrBlank()) {
+            checkConnection()
+        }
+    }
+
+    private fun checkConnection() {
+        val baseUrl = binding.controllerUrlInput.text?.toString()?.trim().orEmpty()
+        if (baseUrl.isBlank()) {
+            toast("Enter the controller URL first")
+            return
+        }
+
+        lifecycleScope.launch {
+            try {
+                val pairing = withContext(Dispatchers.IO) {
+                    ControllerClient(baseUrl).getPairingInfo()
+                }
+                prefs.controllerUrl = baseUrl
+                updatePairingUi(pairing)
+                toast("Connected to controller")
+            } catch (error: Exception) {
+                binding.pairingStatusText.text = "Could not reach controller: ${error.message}"
+                binding.pairingSecretLayout.visibility = View.GONE
+                toast("Connection failed: ${error.message}")
+            }
+        }
+    }
+
+    private fun updatePairingUi(pairing: PairingInfoResponse) {
+        binding.pairingStatusText.text = pairing.instructions
+        if (pairing.required) {
+            binding.pairingSecretLayout.visibility = View.VISIBLE
+            if (!pairing.secret.isNullOrBlank() && binding.pairingSecretInput.text.isNullOrBlank()) {
+                binding.pairingSecretInput.setText(pairing.secret)
+            }
+        } else {
+            binding.pairingSecretLayout.visibility = View.GONE
+            binding.pairingSecretInput.setText("")
         }
     }
 
@@ -48,6 +87,15 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
+                val pairing = withContext(Dispatchers.IO) {
+                    ControllerClient(baseUrl).getPairingInfo()
+                }
+                updatePairingUi(pairing)
+                if (pairing.required && secret.isNullOrBlank()) {
+                    toast("Pairing secret required. Tap Check connection or open the controller in your browser.")
+                    return@launch
+                }
+
                 val response = withContext(Dispatchers.IO) {
                     ControllerClient(baseUrl).register(name, "android", secret)
                 }
@@ -164,8 +212,10 @@ class MainActivity : AppCompatActivity() {
         binding.regionSpinner.isEnabled = true
         binding.refreshButton.isEnabled = true
         binding.registerButton.visibility = View.GONE
+        binding.checkConnectionButton.visibility = View.GONE
         binding.deviceNameInput.isEnabled = false
         binding.pairingSecretInput.isEnabled = false
+        binding.controllerUrlInput.isEnabled = false
     }
 
     private fun toast(message: String) {

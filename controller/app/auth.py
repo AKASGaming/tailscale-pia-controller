@@ -26,7 +26,13 @@ def get_current_device(
 
 def verify_pairing_secret(provided: str | None) -> None:
     settings = get_settings()
-    if not settings.controller_secret:
+    expected = settings.controller_secret.strip()
+    if not expected:
         return
-    if provided != settings.controller_secret:
+    if not provided or not provided.strip():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Pairing secret required. Open the controller dashboard in your browser to view it.",
+        )
+    if provided.strip() != expected:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid pairing secret")

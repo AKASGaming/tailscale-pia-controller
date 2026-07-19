@@ -75,6 +75,14 @@ curl http://localhost:8090/health
 curl http://localhost:8090/regions
 ```
 
+Open **http://your-docker-host:8090/** in a browser for the web dashboard. It shows:
+
+- Service status and available regions
+- **Pairing secret** (if `CONTROLLER_SECRET` is set in `.env`) — copy this into the app when registering
+- Links to API docs at `/docs`
+
+If you leave `CONTROLLER_SECRET` empty in `.env`, registration is open and no pairing code is needed.
+
 ### 3. Tailscale admin setup
 
 After the first region stack starts (when a device enables VPN):
@@ -123,10 +131,11 @@ Install on your phone (enable "Install unknown apps" for your browser/files app 
 
 **Setup in the app:**
 
-1. Enter controller URL (e.g. `http://192.168.1.10:8090` or Tailscale hostname)
-2. Enter pairing secret (if `CONTROLLER_SECRET` is set)
-3. Tap **Register device**
-4. Select region → toggle **Enable PIA via Tailscale**
+1. Enter controller URL → tap **Check connection** (fetches pairing requirements from the server)
+2. Enter device name
+3. If pairing is required, the secret auto-fills from the server (or copy it from the web dashboard)
+4. Tap **Register device**
+5. Select region → toggle **Enable PIA via Tailscale**
 
 The app uses Tailscale's `USE_EXIT_NODE` broadcast intent to select the regional exit node. If that fails, tap **Open Tailscale** and manually select the exit node (e.g. `pia-mexico`).
 

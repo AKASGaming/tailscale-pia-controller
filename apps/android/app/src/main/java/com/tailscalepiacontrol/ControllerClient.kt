@@ -1,6 +1,8 @@
 package com.tailscalepiacontrol
 
 import com.google.gson.Gson
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -15,6 +17,14 @@ class ControllerClient(baseUrl: String, private val apiToken: String? = null) {
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
+
+    fun getPairingInfo(): PairingInfoResponse {
+        val request = Request.Builder()
+            .url("$normalizedBase/pairing")
+            .get()
+            .build()
+        return execute(request, PairingInfoResponse::class.java)
+    }
 
     fun register(name: String, platform: String, pairingSecret: String?): DeviceRegisterResponse {
         val body = gson.toJson(
@@ -63,9 +73,23 @@ class ControllerClient(baseUrl: String, private val apiToken: String? = null) {
         client.newCall(request).execute().use { response ->
             val raw = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                throw IllegalStateException("HTTP ${response.code}: $raw")
+                throw IllegalStateException(parseErrorMessage(response.code, raw))
             }
             return gson.fromJson(raw, clazz)
+        }
+    }
+
+    private fun parseErrorMessage(code: Int, raw: String): String {
+        return try {
+            val json = JsonParser.parseString(raw)
+            if (json is JsonObject && json.has("detail")) {
+                val detail = json.get("detail")
+                if (detail.isJsonPrimitive) detail.asString else detail.toString()
+            } else {
+                "HTTP $code: $raw"
+            }
+        } catch (_: Exception) {
+            if (raw.isBlank()) "HTTP $code" else "HTTP $code: $raw"
         }
     }
 }

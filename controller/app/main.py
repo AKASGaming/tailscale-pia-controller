@@ -7,18 +7,22 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from app import __version__
 from app.auth import get_current_device, verify_pairing_secret
+from app.dashboard import render_dashboard
 from app.database import Base, SessionLocal, engine, get_db
 from app.docker_manager import ensure_region_stack, get_stack_status, release_region_stack, stop_idle_stacks
 from app.models import Device, RegionStack, VpnSession
+from app.pairing import pairing_instructions, pairing_required, pairing_secret_value
 from app.regions import load_regions
 from app.schemas import (
     DeviceRegisterRequest,
     DeviceRegisterResponse,
     HealthResponse,
+    PairingInfoResponse,
     RegionInfo,
     RegionListResponse,
     VpnStatusResponse,
@@ -32,6 +36,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
+    if pairing_required():
+        logger.info("Pairing secret is ENABLED — view it at http://0.0.0.0:8090/")
+    else:
+        logger.info("Pairing secret is disabled — device registration is open")
     yield
 
 
@@ -41,6 +49,38 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
 )
+
+
+@app.get("/", response_class=HTMLResponse)
+def dashboard(db: Session = Depends(get_db)) -> HTMLResponse:
+    active = db.query(RegionStack).filter(RegionStack.status == "running").count()
+    devices = db.query(Device).count()
+    regions = []
+    for region_id, region in load_regions().items():
+        regions.append(
+            {
+                "display_name": region.display_name,
+                "hostname": region.hostname,
+                "stack_status": get_stack_status(db, region_id) or "stopped",
+            }
+        )
+    html = render_dashboard(
+        status="ok",
+        active_stacks=active,
+        registered_devices=devices,
+        regions=sorted(regions, key=lambda item: item["display_name"]),
+    )
+    return HTMLResponse(content=html)
+
+
+@app.get("/pairing", response_model=PairingInfoResponse)
+def pairing_info() -> PairingInfoResponse:
+    required = pairing_required()
+    return PairingInfoResponse(
+        required=required,
+        instructions=pairing_instructions(),
+        secret=pairing_secret_value() if required else None,
+    )
 
 
 @app.get("/health", response_model=HealthResponse)

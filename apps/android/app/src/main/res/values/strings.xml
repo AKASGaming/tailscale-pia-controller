@@ -3,7 +3,9 @@
     <string name="app_name">PIA Control</string>
     <string name="controller_url">Controller URL</string>
     <string name="device_name">Device name</string>
-    <string name="pairing_secret">Pairing secret (optional)</string>
+    <string name="pairing_secret">Pairing secret</string>
+    <string name="check_connection">Check connection</string>
+    <string name="pairing_status_default">Tap Check connection after entering the controller URL.</string>
     <string name="register">Register device</string>
     <string name="region">Region</string>
     <string name="enable_pia">Enable PIA via Tailscale</string>

@@ -50,3 +50,9 @@ class HealthResponse(BaseModel):
     version: str = "1.0.0"
     active_stacks: int
     registered_devices: int
+
+
+class PairingInfoResponse(BaseModel):
+    required: bool
+    instructions: str
+    secret: str | None = None
