@@ -48,6 +48,8 @@
     <string name="tailscale_not_installed">Install Tailscale before enabling PIA</string>
     <string name="tailscale_not_connected">Connect Tailscale first, then try again</string>
     <string name="vpn_disabled_cleared_exit">VPN disabled — cleared exit node</string>
+    <string name="vpn_disabled_remotely">VPN disabled from the controller</string>
+    <string name="vpn_enabled_remotely">VPN updated from the controller</string>
     <string name="stack_failed_cleared_exit">Regional stack failed — cleared exit node</string>
     <string name="stack_unavailable_cleared_exit">Exit node unavailable — cleared exit node</string>
     <string name="controller_unreachable_cleared_exit">Controller unreachable — cleared exit node</string>

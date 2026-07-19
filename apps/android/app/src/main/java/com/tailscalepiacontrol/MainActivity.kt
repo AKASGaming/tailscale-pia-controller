@@ -22,6 +22,7 @@ import com.tailscalepiacontrol.databinding.ActivityMainBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -32,6 +33,8 @@ class MainActivity : AppCompatActivity() {
     private var vpnUpdateInProgress = false
     private var suppressRegionChange = true
     private var exitNodePollJob: Job? = null
+    private var statusPollJob: Job? = null
+    private var statusPollTick = 0
     private var exitNodeAnnounceDone = false
     private var activeRegionId: String? = null
     private var regionAdapter: ArrayAdapter<String>? = null
@@ -110,6 +113,15 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         persistSetupFields()
         super.onPause()
+    }
+
+    override fun onDestroy() {
+        stopStatusPolling()
+        super.onDestroy()
+    }
+
+    companion object {
+        private const val STATUS_POLL_INTERVAL_MS = 3_000L
     }
 
     private fun applySystemBarInsets() {
@@ -327,6 +339,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun resetAllData() {
         exitNodePollJob?.cancel()
+        stopStatusPolling()
         clearExitNode()
         activeRegionId = null
         cachedRegionIds = null
@@ -383,30 +396,80 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshStatus() {
-        val baseUrl = prefs.controllerUrl ?: return
-        val token = prefs.apiToken ?: return
-
         lifecycleScope.launch {
             binding.refreshButton.isEnabled = false
             try {
-                loadRegions()
-
-                val status = withContext(Dispatchers.IO) {
-                    ControllerClient(baseUrl, token).getVpnStatus()
-                }
-                applyStatusToUi(status)
-                reconcileExitNode(status)
-            } catch (error: Exception) {
-                if (!handleApiError(error)) {
-                    if (prefs.lastAppliedExitNode != null) {
-                        clearExitNode(getString(R.string.controller_unreachable_cleared_exit))
-                    }
-                    toast("Status refresh failed: ${error.message}")
-                }
+                syncStatusFromController(notifyRemoteChanges = false, showErrors = true)
             } finally {
                 if (prefs.isRegistered) {
                     binding.refreshButton.isEnabled = true
                 }
+            }
+        }
+    }
+
+    private fun startStatusPolling() {
+        if (!prefs.isRegistered) return
+        if (statusPollJob?.isActive == true) return
+
+        statusPollJob = lifecycleScope.launch {
+            while (isActive) {
+                if (!prefs.isRegistered) break
+                syncStatusFromController(notifyRemoteChanges = true, showErrors = false)
+                delay(STATUS_POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun stopStatusPolling() {
+        statusPollJob?.cancel()
+        statusPollJob = null
+        statusPollTick = 0
+    }
+
+    private suspend fun syncStatusFromController(notifyRemoteChanges: Boolean, showErrors: Boolean) {
+        if (vpnUpdateInProgress) return
+
+        val baseUrl = prefs.controllerUrl ?: return
+        val token = prefs.apiToken ?: return
+
+        try {
+            if (statusPollTick++ % 5 == 0) {
+                loadRegions()
+            }
+
+            val status = withContext(Dispatchers.IO) {
+                ControllerClient(baseUrl, token).getVpnStatus()
+            }
+            if (vpnUpdateInProgress) return
+
+            val wasEnabled = binding.vpnSwitch.isChecked
+            val wasRegion = activeRegionId
+            applyStatusToUi(status)
+            reconcileExitNode(status)
+
+            if (!status.enabled) {
+                exitNodePollJob?.cancel()
+            } else if (status.stack_status == "starting" && exitNodePollJob?.isActive != true) {
+                scheduleExitNodePolling()
+            }
+
+            if (notifyRemoteChanges) {
+                when {
+                    wasEnabled && !status.enabled ->
+                        toast(getString(R.string.vpn_disabled_remotely))
+                    !wasEnabled && status.enabled ->
+                        toast(getString(R.string.vpn_enabled_remotely))
+                    wasEnabled && status.enabled && wasRegion != status.region ->
+                        toast(getString(R.string.vpn_enabled_remotely))
+                }
+            }
+        } catch (error: Exception) {
+            if (!handleApiError(error) && showErrors) {
+                if (prefs.lastAppliedExitNode != null) {
+                    clearExitNode(getString(R.string.controller_unreachable_cleared_exit))
+                }
+                toast("Status refresh failed: ${error.message}")
             }
         }
     }
@@ -649,6 +712,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     if (!status.enabled) {
                         activeRegionId = null
+                        applyStatusToUi(status)
                         reconcileExitNode(status)
                         return@launch
                     }
@@ -710,6 +774,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun resetRegistration() {
         exitNodePollJob?.cancel()
+        stopStatusPolling()
         clearExitNode()
         activeRegionId = null
         cachedRegionIds = null
@@ -748,6 +813,7 @@ class MainActivity : AppCompatActivity() {
         binding.regionSpinner.isEnabled = true
         binding.refreshButton.isEnabled = true
         updateRegistrationUi()
+        startStatusPolling()
     }
 
     private fun toast(message: String) {
