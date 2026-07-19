@@ -252,6 +252,75 @@ async function refreshDashboard() {
   }
 }
 
+function showFlash(message, isError = false) {
+  const banner = document.getElementById("flash-banner");
+  if (!banner || !message) return;
+  banner.textContent = message;
+  banner.classList.remove("hidden", "error");
+  if (isError) banner.classList.add("error");
+  clearTimeout(showFlash._timer);
+  showFlash._timer = setTimeout(() => banner.classList.add("hidden"), 8000);
+}
+
+function consumeLegacyMsgParam() {
+  const params = new URLSearchParams(window.location.search);
+  const legacyMsg = params.get("msg");
+  if (!legacyMsg) return;
+  showFlash(legacyMsg);
+  params.delete("msg");
+  const query = params.toString();
+  const cleanUrl = query ? `${window.location.pathname}?${query}` : window.location.pathname;
+  history.replaceState({}, "", cleanUrl);
+}
+
+async function submitAdminForm(form) {
+  if (document.body.dataset.pairingRequired === "true") {
+    const secret = document.getElementById("admin-secret")?.value?.trim() || "";
+    if (!secret) {
+      showFlash("Enter the admin secret first.", true);
+      return;
+    }
+    if (!form.querySelector('input[name="secret"]')) {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "secret";
+      input.value = secret;
+      form.appendChild(input);
+    }
+  }
+
+  const formData = new FormData(form);
+  const response = await fetch(form.action, {
+    method: form.method || "POST",
+    body: formData,
+    headers: {
+      Accept: "application/json",
+      "X-Dashboard-Submit": "1",
+    },
+  });
+
+  let data = {};
+  try {
+    data = await response.json();
+  } catch (_) {
+    data = {};
+  }
+
+  if (!response.ok) {
+    const detail = data.detail;
+    const message = typeof detail === "string"
+      ? detail
+      : Array.isArray(detail)
+        ? detail.map((item) => item.msg || item).join(", ")
+        : `HTTP ${response.status}`;
+    throw new Error(message);
+  }
+
+  if (data.message) showFlash(data.message);
+  await refreshDashboard();
+}
+
+consumeLegacyMsgParam();
 refreshDashboard();
 setInterval(refreshDashboard, POLL_INTERVAL_MS);
 setInterval(tickIdleCountdowns, 1000);
@@ -260,21 +329,15 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) refreshDashboard();
 });
 
-document.addEventListener("submit", (event) => {
+document.addEventListener("submit", async (event) => {
   const form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
   if (!form.action.includes("/admin/")) return;
-  if (document.body.dataset.pairingRequired !== "true") return;
-  if (form.querySelector('input[name="secret"]')) return;
-  const secret = document.getElementById("admin-secret")?.value?.trim() || "";
-  if (!secret) {
-    event.preventDefault();
-    alert("Enter the admin secret first.");
-    return;
+
+  event.preventDefault();
+  try {
+    await submitAdminForm(form);
+  } catch (error) {
+    showFlash(error.message || "Action failed", true);
   }
-  const input = document.createElement("input");
-  input.type = "hidden";
-  input.name = "secret";
-  input.value = secret;
-  form.appendChild(input);
 });

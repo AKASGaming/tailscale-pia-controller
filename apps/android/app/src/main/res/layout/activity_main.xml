@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rootLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/surface">
 
     <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/appBarLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@color/surface"
@@ -20,6 +22,7 @@
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.core.widget.NestedScrollView
+        android:id="@+id/mainScrollView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:clipToPadding="false"
@@ -135,9 +138,11 @@
                         android:layout_width="match_parent"
                         android:layout_height="48dp"
                         android:layout_marginTop="6dp"
-                        android:background="@android:drawable/btn_dropdown"
+                        android:background="@drawable/bg_spinner"
                         android:enabled="false"
-                        android:paddingHorizontal="8dp" />
+                        android:paddingHorizontal="8dp"
+                        android:popupBackground="@color/surface_container_high"
+                        android:popupTheme="@style/ThemeOverlay.App.SpinnerPopup" />
 
                     <LinearLayout
                         android:layout_width="match_parent"

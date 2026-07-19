@@ -8,10 +8,9 @@ import logging
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Annotated
-from urllib.parse import quote
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
@@ -135,10 +134,15 @@ def _region_infos(db: Session) -> list[RegionInfo]:
     return [RegionInfo(**item) for item in _region_dicts(db)]
 
 
+def _admin_action_response(request: Request, message: str) -> Response:
+    if request.headers.get("x-dashboard-submit"):
+        return JSONResponse({"ok": True, "message": message})
+    return RedirectResponse(url="/", status_code=303)
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(
     db: Session = Depends(get_db),
-    msg: Annotated[str | None, Query()] = None,
 ) -> HTMLResponse:
     active = db.query(RegionStack).filter(RegionStack.status == "running").count()
     devices_count = db.query(Device).count()
@@ -150,7 +154,6 @@ def dashboard(
         idle_shutdown_minutes=get_settings().idle_shutdown_minutes,
         regions=_region_dicts(db),
         devices=list_device_summaries(db),
-        message=msg,
         pairing_code=code_row.code if code_row else None,
         pairing_code_expires_at=code_row.expires_at.strftime("%Y-%m-%d %H:%M") if code_row else None,
     )
@@ -294,6 +297,7 @@ def update_vpn_status(
 
 @app.post("/admin/devices/{device_id}/vpn")
 def admin_update_device_vpn(
+    request: Request,
     device_id: str,
     background_tasks: BackgroundTasks,
     enabled: Annotated[str, Form()],
@@ -310,11 +314,12 @@ def admin_update_device_vpn(
     payload = VpnUpdateRequest(enabled=is_enabled, region=region or None)
     result = apply_vpn_update(device, payload, db, background_tasks)
     msg = result.message or ("VPN updated" if is_enabled else "VPN disabled")
-    return RedirectResponse(url=f"/?msg={quote(msg)}", status_code=303)
+    return _admin_action_response(request, msg)
 
 
 @app.post("/admin/devices/{device_id}/delete")
 def admin_delete_device(
+    request: Request,
     device_id: str,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -326,7 +331,7 @@ def admin_delete_device(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     name = device.name
     delete_device(device, db, background_tasks)
-    return RedirectResponse(url=f"/?msg=Removed device {name}", status_code=303)
+    return _admin_action_response(request, f"Removed device {name}")
 
 
 @app.post("/admin/cleanup-idle")
@@ -337,6 +342,7 @@ def cleanup_idle(db: Session = Depends(get_db)) -> dict:
 
 @app.post("/admin/regions/{region_id}/stop")
 def admin_stop_region(
+    request: Request,
     region_id: str,
     db: Session = Depends(get_db),
     secret: Annotated[str | None, Form()] = None,
@@ -358,4 +364,4 @@ def admin_stop_region(
         )
 
     label = regions[region_id].display_name
-    return RedirectResponse(url=f"/?msg={quote(f'Stopped {label} stack')}", status_code=303)
+    return _admin_action_response(request, f"Stopped {label} stack")

@@ -83,6 +83,16 @@ body {
   margin-bottom: 16px;
 }
 
+.flash.hidden {
+  display: none;
+}
+
+.flash.error {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.45);
+  color: var(--text);
+}
+
 .grid-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

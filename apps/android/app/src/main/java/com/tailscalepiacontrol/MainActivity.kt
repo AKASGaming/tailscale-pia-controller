@@ -7,8 +7,13 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import com.google.gson.JsonParser
 import com.journeyapps.barcodescanner.ScanContract
@@ -48,9 +53,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
+        applySystemBarInsets()
         prefs = Prefs(this)
         AppLogger.info("MainActivity", "App started")
 
@@ -102,6 +110,20 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         persistSetupFields()
         super.onPause()
+    }
+
+    private fun applySystemBarInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(binding.rootLayout) { _, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            binding.appBarLayout.updatePadding(top = systemBars.top)
+            binding.mainScrollView.updatePadding(
+                left = systemBars.left,
+                right = systemBars.right,
+                bottom = systemBars.bottom,
+            )
+            WindowInsetsCompat.CONSUMED
+        }
+        ViewCompat.requestApplyInsets(binding.rootLayout)
     }
 
     private fun restoreSetupFields() {
@@ -341,9 +363,12 @@ class MainActivity : AppCompatActivity() {
                 cachedRegionIds = regionIds
                 regionAdapter = ArrayAdapter(
                     this@MainActivity,
-                    android.R.layout.simple_spinner_dropdown_item,
-                    labels
-                )
+                    R.layout.item_spinner,
+                    R.id.spinnerText,
+                    labels,
+                ).apply {
+                    setDropDownViewResource(R.layout.item_spinner_dropdown)
+                }
                 binding.regionSpinner.adapter = regionAdapter
             }
             selectRegionInSpinner(activeRegionId)
@@ -454,6 +479,7 @@ class MainActivity : AppCompatActivity() {
                     activeRegionId = null
                     clearExitNode()
                     exitNodePollJob?.cancel()
+                    updateStatusHero(status)
                 } else {
                     activeRegionId = status.region
                     updateStatusHero(status)

@@ -74,7 +74,6 @@ def render_dashboard(
     idle_shutdown_minutes: int,
     regions: list[dict],
     devices: list[dict],
-    message: str | None = None,
     pairing_code: str | None = None,
     pairing_code_expires_at: str | None = None,
 ) -> str:
@@ -167,7 +166,7 @@ def render_dashboard(
         </tr>
         """
 
-    flash = f'<div class="flash">{escape(message)}</div>' if message else ""
+    flash = '<div id="flash-banner" class="flash hidden" role="status" aria-live="polite"></div>'
     asset_version = escape(__version__)
 
     return f"""<!DOCTYPE html>

@@ -8,10 +8,17 @@
         <item name="colorOnSurface">@color/on_surface</item>
         <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
         <item name="colorOutline">@color/outline</item>
-        <item name="android:statusBarColor">@color/surface</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@color/surface</item>
         <item name="android:windowBackground">@color/surface</item>
+        <item name="android:windowLightStatusBar">false</item>
         <item name="materialCardViewStyle">@style/Widget.App.Card</item>
+    </style>
+
+    <style name="ThemeOverlay.App.SpinnerPopup" parent="ThemeOverlay.Material3.Dark">
+        <item name="android:colorBackground">@color/surface_container_high</item>
+        <item name="android:textColorPrimary">@color/on_surface</item>
+        <item name="android:textColor">@color/on_surface</item>
     </style>
 
     <style name="Widget.App.Card" parent="Widget.Material3.CardView.Elevated">
