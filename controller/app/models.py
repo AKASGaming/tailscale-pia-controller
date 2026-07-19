@@ -14,17 +14,25 @@ def new_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def new_device_id() -> str:
+    return str(uuid.uuid4())
+
+
 class Device(Base):
     __tablename__ = "devices"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_device_id)
     name: Mapped[str] = mapped_column(String(128))
     platform: Mapped[str] = mapped_column(String(32), default="unknown")
     api_token: Mapped[str] = mapped_column(String(64), default=new_token, unique=True, index=True)
     tailscale_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    session: Mapped["VpnSession | None"] = relationship(back_populates="device", uselist=False)
+    session: Mapped["VpnSession | None"] = relationship(
+        back_populates="device",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
 
 class VpnSession(Base):

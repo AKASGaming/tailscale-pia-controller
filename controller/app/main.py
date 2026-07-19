@@ -115,8 +115,8 @@ def register_device(payload: DeviceRegisterRequest, db: Session = Depends(get_db
         platform=payload.platform,
         tailscale_ip=payload.tailscale_ip,
     )
+    device.session = VpnSession(enabled=False)
     db.add(device)
-    db.add(VpnSession(device_id=device.id, enabled=False))
     db.commit()
     db.refresh(device)
 
