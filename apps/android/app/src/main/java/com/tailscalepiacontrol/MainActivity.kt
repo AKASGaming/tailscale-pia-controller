@@ -47,6 +47,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         prefs = Prefs(this)
+        AppLogger.info("MainActivity", "App started")
 
         prefs.controllerUrl?.let { binding.controllerUrlInput.setText(it) }
 
@@ -56,6 +57,7 @@ class MainActivity : AppCompatActivity() {
         binding.refreshButton.setOnClickListener { refreshStatus() }
         binding.openTailscaleButton.setOnClickListener { TailscaleHelper.openTailscaleApp(this) }
         binding.testIpButton.setOnClickListener { testIpAndLocation() }
+        binding.exportLogsButton.setOnClickListener { exportLogs() }
         binding.vpnSwitch.setOnCheckedChangeListener { _, isChecked -> onVpnToggled(isChecked) }
         binding.regionSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
@@ -77,8 +79,21 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        AppLogger.info("MainActivity", "onResume registered=${prefs.isRegistered}")
         if (prefs.isRegistered) {
             refreshStatus()
+        }
+    }
+
+    private fun exportLogs() {
+        try {
+            val saved = LogExporter.saveToDownloads(this)
+            AppLogger.info("MainActivity", "Exported logs to Downloads/$saved")
+            toast(getString(R.string.export_logs_saved, saved))
+            LogExporter.shareLogs(this)
+        } catch (error: Exception) {
+            AppLogger.error("MainActivity", "Failed to export logs", error)
+            toast(getString(R.string.export_logs_failed, error.message ?: "unknown error"))
         }
     }
 
@@ -263,6 +278,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun switchRegion(regionId: String) {
         if (vpnUpdateInProgress) return
+        AppLogger.info("MainActivity", "switchRegion regionId=$regionId")
         if (!ensureTailscaleConnected()) {
             refreshStatus()
             return
@@ -271,6 +287,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onVpnToggled(enabled: Boolean) {
+        AppLogger.info("MainActivity", "onVpnToggled enabled=$enabled")
         if (vpnUpdateInProgress) {
             setVpnSwitchChecked(!enabled)
             return
@@ -378,6 +395,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun reconcileExitNode(status: VpnStatusResponse) {
+        AppLogger.info(
+            "MainActivity",
+            "reconcileExitNode enabled=${status.enabled} stack=${status.stack_status} exit=${status.exit_node_hostname ?: "-"} lastApplied=${prefs.lastAppliedExitNode ?: "-"}"
+        )
         val shouldUseExitNode = status.enabled &&
             status.stack_status == "running" &&
             !status.exit_node_hostname.isNullOrBlank()
@@ -510,6 +531,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun toast(message: String) {
+        AppLogger.info("UI", message)
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 }

@@ -37,6 +37,7 @@ object TailscaleHelper {
     }
 
     fun setExitNode(context: Context, hostname: String?, allowLanAccess: Boolean = true) {
+        AppLogger.info("TailscaleHelper", "setExitNode hostname=${hostname ?: "(cleared)"} allowLanAccess=$allowLanAccess")
         val intent = Intent("com.tailscale.ipn.USE_EXIT_NODE").apply {
             component = ComponentName(TAILSCALE_PACKAGE, "com.tailscale.ipn.IPNReceiver")
             putExtra("exitNode", hostname.orEmpty())

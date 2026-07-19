@@ -136,6 +136,14 @@
             android:layout_marginTop="8dp"
             android:text="@string/test_ip" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/exportLogsButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/export_logs" />
+
         <TextView
             android:id="@+id/statusText"
             android:layout_width="match_parent"

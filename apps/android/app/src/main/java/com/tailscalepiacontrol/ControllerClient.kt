@@ -65,6 +65,7 @@ class ControllerClient(baseUrl: String, private val apiToken: String? = null) {
     fun updateVpn(enabled: Boolean, region: String?): VpnStatusResponse {
         val body = gson.toJson(VpnUpdateRequest(enabled, region)).toRequestBody("application/json".toMediaType())
         val request = authorized("$normalizedBase/devices/me/vpn").put(body).build()
+        AppLogger.info("ControllerClient", "updateVpn enabled=$enabled region=${region ?: "-"}")
         return execute(request, VpnStatusResponse::class.java, vpnClient)
     }
 
@@ -76,13 +77,44 @@ class ControllerClient(baseUrl: String, private val apiToken: String? = null) {
     }
 
     private fun <T> execute(request: Request, clazz: Class<T>, httpClient: OkHttpClient = client): T {
-        httpClient.newCall(request).execute().use { response ->
-            val raw = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw IllegalStateException(parseErrorMessage(response.code, raw))
+        val startedAt = System.currentTimeMillis()
+        AppLogger.info("ControllerClient", "--> ${request.method} ${redactUrl(request.url.toString())}")
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                val raw = response.body?.string().orEmpty()
+                val elapsed = System.currentTimeMillis() - startedAt
+                if (!response.isSuccessful) {
+                    val message = parseErrorMessage(response.code, raw)
+                    AppLogger.error(
+                        "ControllerClient",
+                        "<-- HTTP ${response.code} (${elapsed}ms) ${request.method} ${redactUrl(request.url.toString())}: $message"
+                    )
+                    throw IllegalStateException(message)
+                }
+                AppLogger.info(
+                    "ControllerClient",
+                    "<-- HTTP ${response.code} (${elapsed}ms) ${request.method} ${redactUrl(request.url.toString())} body=${truncate(raw)}"
+                )
+                return gson.fromJson(raw, clazz)
             }
-            return gson.fromJson(raw, clazz)
+        } catch (error: Exception) {
+            val elapsed = System.currentTimeMillis() - startedAt
+            AppLogger.error(
+                "ControllerClient",
+                "<-- FAILED (${elapsed}ms) ${request.method} ${redactUrl(request.url.toString())}",
+                error
+            )
+            throw error
         }
+    }
+
+    private fun redactUrl(url: String): String {
+        return url
+    }
+
+    private fun truncate(raw: String, max: Int = 500): String {
+        val compact = raw.replace("\n", " ").trim()
+        return if (compact.length <= max) compact else compact.take(max) + "…"
     }
 
     private fun parseErrorMessage(code: Int, raw: String): String {
