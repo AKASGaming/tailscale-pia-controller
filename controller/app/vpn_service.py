@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.docker_manager import ensure_region_stack, get_stack_status, release_region_stack, stop_idle_stacks
 from app.database import SessionLocal
 from app.models import Device, VpnSession
-from app.regions import load_regions
+from app.regions import load_regions, region_display_label
 from app.schemas import VpnStatusResponse, VpnUpdateRequest
 
 
@@ -134,10 +134,12 @@ def idle_cleanup() -> None:
 
 
 def list_device_summaries(db: Session) -> list[dict]:
+    regions = load_regions()
     devices = db.query(Device).order_by(Device.created_at.desc()).all()
     summaries = []
     for device in devices:
         session = db.query(VpnSession).filter(VpnSession.device_id == device.id).first()
+        region_id = session.region if session else None
         summaries.append(
             {
                 "id": device.id,
@@ -145,9 +147,10 @@ def list_device_summaries(db: Session) -> list[dict]:
                 "platform": device.platform,
                 "created_at": device.created_at.strftime("%Y-%m-%d %H:%M UTC"),
                 "vpn_enabled": bool(session and session.enabled),
-                "region": session.region if session else None,
+                "region": region_id,
+                "region_display_name": region_display_label(region_id, regions),
                 "exit_node_hostname": session.exit_node_hostname if session else None,
-                "stack_status": get_stack_status(db, session.region if session else None),
+                "stack_status": get_stack_status(db, region_id),
             }
         )
     return summaries

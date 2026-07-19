@@ -38,6 +38,7 @@ class VpnStatusResponse(BaseModel):
 class RegionInfo(BaseModel):
     id: str
     display_name: str
+    server_region: str
     hostname: str
     stack_status: str
 
@@ -68,6 +69,7 @@ class DeviceSummary(BaseModel):
     created_at: str
     vpn_enabled: bool
     region: str | None = None
+    region_display_name: str | None = None
     exit_node_hostname: str | None = None
     stack_status: str | None = None
 

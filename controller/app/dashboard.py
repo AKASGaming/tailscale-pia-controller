@@ -12,8 +12,9 @@ def _region_options(regions: list[dict], selected: str | None = None) -> str:
     options = ['<option value="">— select region —</option>']
     for region in regions:
         sel = ' selected' if selected == region["id"] else ""
+        label = f'{region["display_name"]} — {region["server_region"]}'
         options.append(
-            f'<option value="{escape(region["id"])}"{sel}>{escape(region["display_name"])}</option>'
+            f'<option value="{escape(region["id"])}"{sel}>{escape(label)}</option>'
         )
     return "".join(options)
 
@@ -68,6 +69,7 @@ def render_dashboard(
 
     region_rows = "".join(
         f"<tr data-region-id=\"{escape(r['id'])}\"><td>{escape(r['display_name'])}</td>"
+        f"<td><code>{escape(r['server_region'])}</code></td>"
         f"<td><code>{escape(r['hostname'])}</code></td>"
         f"<td class=\"region-stack\">{escape(r['stack_status'])}</td></tr>"
         for r in regions
@@ -90,7 +92,7 @@ def render_dashboard(
           <td><strong>{escape(device['name'])}</strong><br><span class="muted">{escape(device['platform'])}</span></td>
           <td><code>{escape(device['id'][:8])}…</code></td>
           <td class="device-vpn">{vpn_label}</td>
-          <td class="device-region">{escape(device.get('region') or '—')}</td>
+          <td class="device-region">{escape(device.get('region_display_name') or '—')}</td>
           <td class="device-exit"><code>{escape(device.get('exit_node_hostname') or '—')}</code></td>
           <td class="device-stack">{escape(device.get('stack_status') or '—')}</td>
           <td>
@@ -228,8 +230,8 @@ def render_dashboard(
   <section class="card">
     <h2>Available regions</h2>
     <table>
-      <thead><tr><th>Region</th><th>Exit node hostname</th><th>Stack status</th></tr></thead>
-      <tbody id="regions-tbody">{region_rows or '<tr><td colspan="3">No regions configured</td></tr>'}</tbody>
+      <thead><tr><th>Region</th><th>PIA server region</th><th>Exit node hostname</th><th>Stack status</th></tr></thead>
+      <tbody id="regions-tbody">{region_rows or '<tr><td colspan="4">No regions configured</td></tr>'}</tbody>
     </table>
     <p class="muted">After enabling a region, select the matching exit node in the Tailscale app on the device (e.g. <code>pia-mexico</code>).</p>
   </section>
@@ -247,7 +249,8 @@ def render_dashboard(
       const options = ['<option value="">— select region —</option>'];
       for (const region of regions) {{
         const sel = selected === region.id ? " selected" : "";
-        options.push(`<option value="${{escapeHtml(region.id)}}"${{sel}}>${{escapeHtml(region.display_name)}}</option>`);
+        const label = `${{region.display_name}} — ${{region.server_region}}`;
+        options.push(`<option value="${{escapeHtml(region.id)}}"${{sel}}>${{escapeHtml(label)}}</option>`);
       }}
       return options.join("");
     }}
@@ -282,7 +285,7 @@ def render_dashboard(
           <td><strong>${{escapeHtml(device.name)}}</strong><br><span class="muted">${{escapeHtml(device.platform)}}</span></td>
           <td><code>${{escapeHtml(device.id.slice(0, 8))}}…</code></td>
           <td class="device-vpn">${{vpnLabel}}</td>
-          <td class="device-region">${{escapeHtml(device.region || "—")}}</td>
+          <td class="device-region">${{escapeHtml(device.region_display_name || "—")}}</td>
           <td class="device-exit"><code>${{escapeHtml(device.exit_node_hostname || "—")}}</code></td>
           <td class="device-stack">${{escapeHtml(device.stack_status || "—")}}</td>
           <td>
@@ -319,7 +322,7 @@ def render_dashboard(
           const row = tbody.querySelector(`tr[data-device-id="${{device.id}}"]`);
           if (!row) continue;
           row.querySelector(".device-vpn").textContent = device.vpn_enabled ? "Yes" : "No";
-          row.querySelector(".device-region").textContent = device.region || "—";
+          row.querySelector(".device-region").textContent = device.region_display_name || "—";
           row.querySelector(".device-exit code").textContent = device.exit_node_hostname || "—";
           row.querySelector(".device-stack").textContent = device.stack_status || "—";
         }}
@@ -343,6 +346,7 @@ def render_dashboard(
       tbody.innerHTML = regions.map((region) => `
         <tr data-region-id="${{escapeHtml(region.id)}}">
           <td>${{escapeHtml(region.display_name)}}</td>
+          <td><code>${{escapeHtml(region.server_region)}}</code></td>
           <td><code>${{escapeHtml(region.hostname)}}</code></td>
           <td class="region-stack">${{escapeHtml(region.stack_status)}}</td>
         </tr>`).join("");

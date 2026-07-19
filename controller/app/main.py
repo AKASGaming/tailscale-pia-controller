@@ -87,6 +87,7 @@ def _region_dicts(db: Session) -> list[dict]:
             {
                 "id": region_id,
                 "display_name": region.display_name,
+                "server_region": region.server_region,
                 "hostname": region.hostname,
                 "stack_status": get_stack_status(db, region_id) or "stopped",
             }
@@ -126,6 +127,7 @@ def dashboard_state(db: Session = Depends(get_db)) -> DashboardStateResponse:
             RegionInfo(
                 id=region_id,
                 display_name=region.display_name,
+                server_region=region.server_region,
                 hostname=region.hostname,
                 stack_status=get_stack_status(db, region_id) or "stopped",
             )
@@ -142,6 +144,7 @@ def dashboard_state(db: Session = Depends(get_db)) -> DashboardStateResponse:
                 created_at=item["created_at"],
                 vpn_enabled=item["vpn_enabled"],
                 region=item["region"],
+                region_display_name=item["region_display_name"],
                 exit_node_hostname=item["exit_node_hostname"],
                 stack_status=item["stack_status"],
             )
@@ -194,6 +197,7 @@ def list_regions(db: Session = Depends(get_db)) -> RegionListResponse:
             RegionInfo(
                 id=region_id,
                 display_name=region.display_name,
+                server_region=region.server_region,
                 hostname=region.hostname,
                 stack_status=stack_status,
             )
@@ -211,6 +215,7 @@ def admin_list_devices(db: Session = Depends(get_db)) -> DeviceListResponse:
             created_at=item["created_at"],
             vpn_enabled=item["vpn_enabled"],
             region=item["region"],
+            region_display_name=item["region_display_name"],
             exit_node_hostname=item["exit_node_hostname"],
             stack_status=item["stack_status"],
         )

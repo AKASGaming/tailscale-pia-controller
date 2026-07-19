@@ -38,3 +38,13 @@ def get_region(region_id: str) -> RegionConfig:
     if region_id not in regions:
         raise KeyError(f"Unknown region: {region_id}")
     return regions[region_id]
+
+
+def region_display_label(region_id: str | None, regions: dict[str, RegionConfig] | None = None) -> str | None:
+    if not region_id:
+        return None
+    catalog = regions if regions is not None else load_regions()
+    region = catalog.get(region_id)
+    if region is None:
+        return region_id
+    return region.display_name
