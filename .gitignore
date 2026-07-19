@@ -4,7 +4,8 @@ __pycache__/
 .venv/
 venv/
 *.db
-runtime/
+runtime/*
+!runtime/.gitkeep
 data/gluetun-*/
 data/tailscale-*/
 .idea/
