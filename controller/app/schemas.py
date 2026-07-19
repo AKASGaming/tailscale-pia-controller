@@ -74,3 +74,13 @@ class DeviceSummary(BaseModel):
 
 class DeviceListResponse(BaseModel):
     devices: list[DeviceSummary]
+
+
+class DashboardStateResponse(BaseModel):
+    active_stacks: int
+    registered_devices: int
+    regions: list[RegionInfo]
+    devices: list[DeviceSummary]
+    pairing_required: bool
+    pairing_code: str | None = None
+    pairing_code_expires_at: str | None = None

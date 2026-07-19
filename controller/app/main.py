@@ -28,6 +28,7 @@ from app.schemas import (
     DeviceRegisterResponse,
     DeviceSummary,
     DeviceListResponse,
+    DashboardStateResponse,
     HealthResponse,
     PairingInfoResponse,
     RegionInfo,
@@ -112,6 +113,44 @@ def dashboard(
         pairing_code_expires_at=code_row.expires_at.strftime("%Y-%m-%d %H:%M") if code_row else None,
     )
     return HTMLResponse(content=html)
+
+
+@app.get("/dashboard/state", response_model=DashboardStateResponse)
+def dashboard_state(db: Session = Depends(get_db)) -> DashboardStateResponse:
+    active = db.query(RegionStack).filter(RegionStack.status == "running").count()
+    devices_count = db.query(Device).count()
+    code_row = get_or_create_active_code(db)
+    regions = []
+    for region_id, region in load_regions().items():
+        regions.append(
+            RegionInfo(
+                id=region_id,
+                display_name=region.display_name,
+                hostname=region.hostname,
+                stack_status=get_stack_status(db, region_id) or "stopped",
+            )
+        )
+    return DashboardStateResponse(
+        active_stacks=active,
+        registered_devices=devices_count,
+        regions=sorted(regions, key=lambda item: item.display_name),
+        devices=[
+            DeviceSummary(
+                id=item["id"],
+                name=item["name"],
+                platform=item["platform"],
+                created_at=item["created_at"],
+                vpn_enabled=item["vpn_enabled"],
+                region=item["region"],
+                exit_node_hostname=item["exit_node_hostname"],
+                stack_status=item["stack_status"],
+            )
+            for item in list_device_summaries(db)
+        ],
+        pairing_required=pairing_required(),
+        pairing_code=code_row.code if code_row else None,
+        pairing_code_expires_at=code_row.expires_at.strftime("%Y-%m-%d %H:%M") if code_row else None,
+    )
 
 
 @app.get("/pairing", response_model=PairingInfoResponse)
