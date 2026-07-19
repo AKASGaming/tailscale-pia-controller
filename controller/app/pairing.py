@@ -15,8 +15,8 @@ def pairing_secret_value() -> str | None:
 def pairing_instructions() -> str:
     if pairing_required():
         return (
-            "Device registration requires the pairing secret shown below. "
-            "Enter the same value in the mobile app or CLI when registering."
+            "Scan the QR code with the PIA Control app, or enter the 6-character pairing code below. "
+            "Codes expire after 30 minutes and refresh automatically."
         )
     return (
         "No pairing secret is configured. Any device on your network can register. "

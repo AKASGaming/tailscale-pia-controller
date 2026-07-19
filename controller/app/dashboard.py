@@ -5,7 +5,7 @@ from __future__ import annotations
 from html import escape
 
 from app import __version__
-from app.pairing import pairing_instructions, pairing_required, pairing_secret_value
+from app.pairing import pairing_instructions, pairing_required
 
 
 def _region_options(regions: list[dict], selected: str | None = None) -> str:
@@ -26,23 +26,43 @@ def render_dashboard(
     regions: list[dict],
     devices: list[dict],
     message: str | None = None,
+    pairing_code: str | None = None,
+    pairing_code_expires_at: str | None = None,
 ) -> str:
     pairing_block = ""
     if pairing_required():
-        secret = escape(pairing_secret_value() or "")
+        code = escape(pairing_code or "—")
+        expires = escape(pairing_code_expires_at or "")
         pairing_block = f"""
         <section class="card highlight">
-          <h2>Pairing secret</h2>
+          <h2>Pair a device</h2>
           <p>{escape(pairing_instructions())}</p>
-          <div class="secret">{secret}</div>
-          <p class="muted">Required for device registration and admin actions below when set.</p>
+          <div class="pairing-grid">
+            <div>
+              <img src="/pairing/qr" width="220" height="220" alt="Pairing QR code" class="qr" />
+            </div>
+            <div>
+              <p class="muted">Pairing code</p>
+              <div class="secret pairing-code">{code}</div>
+              <p class="muted">Expires at {expires} UTC</p>
+              <p class="muted">Scan with the PIA Control app, or enter the code manually if the device has no camera.</p>
+            </div>
+          </div>
         </section>
         """
     else:
         pairing_block = f"""
         <section class="card">
-          <h2>Pairing secret</h2>
+          <h2>Pair a device</h2>
           <p>{escape(pairing_instructions())}</p>
+          <div class="pairing-grid">
+            <div>
+              <img src="/pairing/qr" width="220" height="220" alt="Controller URL QR code" class="qr" />
+            </div>
+            <div>
+              <p class="muted">Scan to fill the controller URL in the app. No pairing code is required.</p>
+            </div>
+          </div>
         </section>
         """
 
@@ -147,6 +167,23 @@ def render_dashboard(
       margin-bottom: 6px;
     }}
     .inline-form label {{ display: flex; gap: 4px; align-items: center; }}
+    .pairing-grid {{
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 12px;
+    }}
+    .pairing-code {{
+      letter-spacing: 0.35em;
+      text-align: center;
+      font-size: 1.75rem;
+    }}
+    .qr {{
+      border-radius: 12px;
+      background: white;
+      padding: 8px;
+    }}
   </style>
 </head>
 <body>

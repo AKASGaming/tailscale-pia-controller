@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.models import Device
+from app.pairing_codes import validate_pairing_code
 
 security = HTTPBearer(auto_error=False)
 
@@ -36,6 +37,28 @@ def verify_pairing_secret(provided: str | None) -> None:
         )
     if provided.strip() != expected:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid pairing secret")
+
+
+def verify_pairing_credentials(
+    db: Session,
+    *,
+    pairing_secret: str | None,
+    pairing_code: str | None,
+) -> None:
+    settings = get_settings()
+    expected = settings.controller_secret.strip()
+    if not expected:
+        return
+
+    if validate_pairing_code(db, pairing_code):
+        return
+    if pairing_secret and pairing_secret.strip() == expected:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Valid pairing code required. Scan the QR code on the controller dashboard or enter the 6-character code.",
+    )
 
 
 def verify_admin_secret(provided: str | None) -> None:

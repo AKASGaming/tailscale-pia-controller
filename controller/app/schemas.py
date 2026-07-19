@@ -10,6 +10,7 @@ class DeviceRegisterRequest(BaseModel):
     platform: str = Field(default="unknown", max_length=32)
     tailscale_ip: str | None = None
     pairing_secret: str | None = None
+    pairing_code: str | None = None
 
 
 class DeviceRegisterResponse(BaseModel):
@@ -56,6 +57,8 @@ class PairingInfoResponse(BaseModel):
     required: bool
     instructions: str
     secret: str | None = None
+    pairing_code: str | None = None
+    pairing_code_expires_at: str | None = None
 
 
 class DeviceSummary(BaseModel):

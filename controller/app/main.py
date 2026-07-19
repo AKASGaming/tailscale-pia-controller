@@ -2,23 +2,26 @@
 
 from __future__ import annotations
 
+import io
 import logging
 from contextlib import asynccontextmanager
+from typing import Annotated
 from urllib.parse import quote
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Query, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app import __version__
-from app.auth import get_current_device, verify_admin_secret, verify_pairing_secret
+from app.auth import get_current_device, verify_admin_secret, verify_pairing_credentials
 from app.config import get_settings
 from app.dashboard import render_dashboard
 from app.database import Base, SessionLocal, engine, get_db
 from app.docker_manager import get_stack_status, stop_idle_stacks
 from app.host_paths import resolve_host_path
 from app.models import Device, RegionStack, VpnSession
-from app.pairing import pairing_instructions, pairing_required, pairing_secret_value
+from app.pairing import pairing_instructions, pairing_required
+from app.pairing_codes import build_pairing_payload, get_or_create_active_code
 from app.regions import load_regions
 from app.schemas import (
     DeviceRegisterRequest,
@@ -97,6 +100,7 @@ def dashboard(
 ) -> HTMLResponse:
     active = db.query(RegionStack).filter(RegionStack.status == "running").count()
     devices_count = db.query(Device).count()
+    code_row = get_or_create_active_code(db)
     html = render_dashboard(
         status="ok",
         active_stacks=active,
@@ -104,18 +108,35 @@ def dashboard(
         regions=_region_dicts(db),
         devices=list_device_summaries(db),
         message=msg,
+        pairing_code=code_row.code if code_row else None,
+        pairing_code_expires_at=code_row.expires_at.strftime("%Y-%m-%d %H:%M") if code_row else None,
     )
     return HTMLResponse(content=html)
 
 
 @app.get("/pairing", response_model=PairingInfoResponse)
-def pairing_info() -> PairingInfoResponse:
+def pairing_info(db: Session = Depends(get_db)) -> PairingInfoResponse:
     required = pairing_required()
+    code_row = get_or_create_active_code(db) if required else None
     return PairingInfoResponse(
         required=required,
         instructions=pairing_instructions(),
-        secret=pairing_secret_value() if required else None,
+        pairing_code=code_row.code if code_row else None,
+        pairing_code_expires_at=code_row.expires_at.isoformat() + "Z" if code_row else None,
     )
+
+
+@app.get("/pairing/qr")
+def pairing_qr(request: Request, db: Session = Depends(get_db)) -> Response:
+    import qrcode
+
+    base_url = str(request.base_url).rstrip("/")
+    code_row = get_or_create_active_code(db)
+    payload = build_pairing_payload(base_url, code_row.code if code_row else None)
+    image = qrcode.make(payload)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return Response(content=buffer.getvalue(), media_type="image/png")
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -161,7 +182,11 @@ def admin_list_devices(db: Session = Depends(get_db)) -> DeviceListResponse:
 
 @app.post("/devices/register", response_model=DeviceRegisterResponse)
 def register_device(payload: DeviceRegisterRequest, db: Session = Depends(get_db)) -> DeviceRegisterResponse:
-    verify_pairing_secret(payload.pairing_secret)
+    verify_pairing_credentials(
+        db,
+        pairing_secret=payload.pairing_secret,
+        pairing_code=payload.pairing_code,
+    )
 
     device = Device(
         name=payload.name,

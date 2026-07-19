@@ -48,6 +48,15 @@ class VpnSession(Base):
     device: Mapped[Device] = relationship(back_populates="session")
 
 
+class PairingCode(Base):
+    __tablename__ = "pairing_codes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(6), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class RegionStack(Base):
     __tablename__ = "region_stacks"
 

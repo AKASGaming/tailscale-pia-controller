@@ -26,12 +26,13 @@ class ControllerClient(baseUrl: String, private val apiToken: String? = null) {
         return execute(request, PairingInfoResponse::class.java)
     }
 
-    fun register(name: String, platform: String, pairingSecret: String?): DeviceRegisterResponse {
+    fun register(name: String, platform: String, pairingSecret: String?, pairingCode: String?): DeviceRegisterResponse {
         val body = gson.toJson(
             mapOf(
                 "name" to name,
                 "platform" to platform,
-                "pairing_secret" to pairingSecret
+                "pairing_secret" to pairingSecret,
+                "pairing_code" to pairingCode
             )
         ).toRequestBody("application/json".toMediaType())
 

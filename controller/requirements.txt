@@ -6,3 +6,4 @@ pydantic-settings==2.6.1
 pyyaml==6.0.2
 httpx==0.28.1
 python-multipart==0.0.20
+qrcode[pil]==8.0

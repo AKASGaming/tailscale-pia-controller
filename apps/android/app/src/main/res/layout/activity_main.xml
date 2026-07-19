@@ -45,18 +45,19 @@
         </com.google.android.material.textfield.TextInputLayout>
 
         <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/pairingSecretLayout"
+            android:id="@+id/pairingCodeLayout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:hint="@string/pairing_secret"
+            android:hint="@string/pairing_code"
             android:visibility="gone">
 
             <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/pairingSecretInput"
+                android:id="@+id/pairingCodeInput"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="textPassword" />
+                android:inputType="textCapCharacters"
+                android:maxLength="6" />
         </com.google.android.material.textfield.TextInputLayout>
 
         <TextView
@@ -66,6 +67,14 @@
             android:layout_marginTop="8dp"
             android:text="@string/pairing_status_default"
             android:textAppearance="?attr/textAppearanceBodySmall" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/scanQrButton"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/scan_qr" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/checkConnectionButton"

@@ -36,5 +36,7 @@ data class VpnUpdateRequest(
 data class PairingInfoResponse(
     val required: Boolean,
     val instructions: String,
-    val secret: String?
+    val secret: String?,
+    val pairing_code: String? = null,
+    val pairing_code_expires_at: String? = null
 )

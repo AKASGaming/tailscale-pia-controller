@@ -3,7 +3,8 @@
     <string name="app_name">PIA Control</string>
     <string name="controller_url">Controller URL</string>
     <string name="device_name">Device name</string>
-    <string name="pairing_secret">Pairing secret</string>
+    <string name="pairing_code">Pairing code</string>
+    <string name="scan_qr">Scan pairing QR code</string>
     <string name="check_connection">Check connection</string>
     <string name="pairing_status_default">Tap Check connection after entering the controller URL.</string>
     <string name="register">Register device</string>
