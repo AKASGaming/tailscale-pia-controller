@@ -109,14 +109,24 @@ Edit [`regions/regions.yaml`](regions/regions.yaml). Region `server_region` valu
 
 **Requirements:** Tailscale Android app installed and connected.
 
+**Option A — Download prebuilt APK**
+
+Download [`releases/pia-control-v1.0.0-debug.apk`](releases/pia-control-v1.0.0-debug.apk) from this repo (or the latest [GitHub Release](https://github.com/AKASGaming/tailscale-pia-controller/releases)).
+
+Install on your phone (enable "Install unknown apps" for your browser/files app if needed).
+
+**Option B — Build from source**
+
 1. Open `apps/android` in Android Studio
 2. Build → Build APK(s)
 3. Install on your phone
-4. In the app:
-   - Enter controller URL (e.g. `http://192.168.1.10:8090` or Tailscale hostname)
-   - Enter pairing secret (if `CONTROLLER_SECRET` is set)
-   - Tap **Register device**
-   - Select region → toggle **Enable PIA via Tailscale**
+
+**Setup in the app:**
+
+1. Enter controller URL (e.g. `http://192.168.1.10:8090` or Tailscale hostname)
+2. Enter pairing secret (if `CONTROLLER_SECRET` is set)
+3. Tap **Register device**
+4. Select region → toggle **Enable PIA via Tailscale**
 
 The app uses Tailscale's `USE_EXIT_NODE` broadcast intent to select the regional exit node. If that fails, tap **Open Tailscale** and manually select the exit node (e.g. `pia-mexico`).
 
