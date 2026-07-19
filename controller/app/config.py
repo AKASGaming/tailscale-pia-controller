@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     regions_file: Path = Path("/project/regions/regions.yaml")
     runtime_dir: Path = Path("/project/runtime")
     compose_project_name: str = "tailscale-pia"
+    docker_project_name: str = "tailscale-pia-controller"
+    ts_exit_node_tag: str = "tag:pia-exit"
 
     pia_user: str = ""
     pia_pass: str = ""

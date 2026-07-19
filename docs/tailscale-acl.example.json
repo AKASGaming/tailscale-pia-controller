@@ -1,0 +1,8 @@
+{
+  "tagOwners": {
+    "tag:pia-exit": ["autogroup:admin"]
+  },
+  "autoApprovers": {
+    "exitNode": ["tag:pia-exit"]
+  }
+}

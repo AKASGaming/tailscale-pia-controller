@@ -87,25 +87,42 @@ If you leave `CONTROLLER_SECRET` empty in `.env`, registration is open and no pa
 
 ### 3. Tailscale admin setup
 
-After the first region stack starts (when a device enables VPN):
+#### Auto-approve exit nodes (recommended)
+
+Tailscale does not expose a simple API to click "approve" in the UI, but **ACL autoApprovers** do the same thing automatically for tagged nodes.
+
+1. Open [Tailscale admin → Access controls](https://login.tailscale.com/admin/acls) and merge in [`docs/tailscale-acl.example.json`](docs/tailscale-acl.example.json):
+
+```json
+{
+  "tagOwners": {
+    "tag:pia-exit": ["your-email@example.com"]
+  },
+  "autoApprovers": {
+    "exitNode": ["tag:pia-exit"]
+  }
+}
+```
+
+2. Create a new **auth key** at [Keys](https://login.tailscale.com/admin/settings/keys) with tag `tag:pia-exit` and set it as `TS_AUTHKEY` in `.env`.
+
+3. Regional exit nodes (`pia-mexico`, etc.) join the tailnet **already approved** — no manual step per region.
+
+> If a node was created before autoApprovers were configured, delete its Tailscale state (`runtime/data/<region>/tailscale/`) and re-enable the region so it re-joins with the tag.
+
+#### Manual approval (alternative)
 
 1. Open [Tailscale admin → Machines](https://login.tailscale.com/admin/machines)
 2. Find machines named `pia-mexico`, `pia-uk`, etc.
 3. Enable **Use as exit node** for each
-4. Confirm DNS still points to Pi-hole (Admin → DNS)
-5. Optional ACL to restrict exit node usage:
 
-```json
-{
-  "grants": [
-    {
-      "src": ["autogroup:member"],
-      "dst": ["tag:exit-node"],
-      "ip": ["*"]
-    }
-  ]
-}
-```
+#### DNS
+
+Confirm DNS still points to Pi-hole (Admin → DNS).
+
+#### Portainer / Docker stack grouping
+
+Regional `gluetun-*` and `tailscale-exit-*` containers are labeled with `com.docker.compose.project` (default: `tailscale-pia-controller`). Set `DOCKER_PROJECT_NAME` in `.env` to match your Portainer stack name so they appear grouped together. Re-create regional stacks after updating (disable VPN in app, pull update, enable again).
 
 ### 4. Add or customize regions
 
@@ -282,6 +299,17 @@ tailscale-pia-controller/
 ├── apps/android/               # Android control app
 └── apps/windows/               # PowerShell + Python CLI
 ```
+
+---
+
+## Related resources
+
+| Resource | Useful for this project? |
+|---|---|
+| [tailscale-android](https://github.com/tailscale/tailscale-android) | **Yes** — source for `MainActivity`, `USE_EXIT_NODE`, `CONNECT_VPN` intents used by the app |
+| [Reddit: Tailscale on/off automation](https://www.reddit.com/r/Tailscale/comments/141rkyy/tutorial_turn_taiscale_onoff_automatically_using/) | **Yes** — same intent-based automation pattern as our Android app |
+| [Reddit: Tailscale on Android tips](https://www.reddit.com/r/Tailscale/comments/1palbcl/how_to_effectively_use_tailscale_on_android_no_on/) | **Somewhat** — general Android + Tailscale coexistence tips |
+| [TailSocks](https://tailscale.com/community/community-projects/tailsocks) | **Different approach** — runs Tailscale in userspace without `VpnService`, allowing multiple tunnels. Could avoid the "one VPN slot" problem entirely, but is a separate client — not integrated with this controller today |
 
 ---
 

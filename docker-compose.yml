@@ -18,6 +18,8 @@ services:
       - TS_BASE_PORT=${TS_BASE_PORT:-41641}
       - CONTROLLER_SECRET=${CONTROLLER_SECRET:-}
       - IDLE_SHUTDOWN_MINUTES=${IDLE_SHUTDOWN_MINUTES:-30}
+      - DOCKER_PROJECT_NAME=${DOCKER_PROJECT_NAME:-tailscale-pia-controller}
+      - TS_EXIT_NODE_TAG=${TS_EXIT_NODE_TAG:-tag:pia-exit}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/project

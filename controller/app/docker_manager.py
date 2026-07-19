@@ -75,6 +75,34 @@ def _wait_for_healthy(name: str, timeout_seconds: int = 120) -> bool:
     return False
 
 
+def _stack_labels(region_id: str, service: str) -> list[str]:
+    settings = get_settings()
+    project = settings.docker_project_name
+    host_project = resolve_host_path("/project")
+    return [
+        "--label",
+        f"com.docker.compose.project={project}",
+        "--label",
+        f"com.docker.compose.service={service}",
+        "--label",
+        f"com.docker.compose.project.working_dir={host_project}",
+        "--label",
+        "com.docker.compose.project.config_files=docker-compose.yml",
+        "--label",
+        f"vpn.region={region_id}",
+        "--label",
+        "vpn.managed-by=vpn-controller",
+    ]
+
+
+def _tailscale_extra_args() -> str:
+    settings = get_settings()
+    tag = settings.ts_exit_node_tag.strip()
+    if tag:
+        return f"--advertise-exit-node --advertise-tags={tag}"
+    return "--advertise-exit-node"
+
+
 def _start_gluetun(region: RegionConfig, ts_port: int, data_dir: str) -> None:
     settings = get_settings()
     name = f"gluetun-{region.id}"
@@ -107,10 +135,7 @@ def _start_gluetun(region: RegionConfig, ts_port: int, data_dir: str) -> None:
         f"{data_dir}/gluetun:/gluetun",
         "-p",
         f"{ts_port}:{ts_port}/udp",
-        "--label",
-        f"vpn.region={region.id}",
-        "--label",
-        "vpn.managed-by=vpn-controller",
+        *_stack_labels(region.id, f"gluetun-{region.id}"),
         "--restart",
         "unless-stopped",
         "qmcgaw/gluetun:latest",
@@ -141,13 +166,10 @@ def _start_tailscale(region: RegionConfig, data_dir: str) -> None:
         "-e",
         "TS_ACCEPT_DNS=false",
         "-e",
-        "TS_EXTRA_ARGS=--advertise-exit-node",
+        f"TS_EXTRA_ARGS={_tailscale_extra_args()}",
         "-v",
         f"{data_dir}/tailscale:/var/lib/tailscale",
-        "--label",
-        f"vpn.region={region.id}",
-        "--label",
-        "vpn.managed-by=vpn-controller",
+        *_stack_labels(region.id, f"tailscale-exit-{region.id}"),
         "--restart",
         "unless-stopped",
         "tailscale/tailscale:latest",
