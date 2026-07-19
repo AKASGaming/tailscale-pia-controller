@@ -11,5 +11,6 @@
     <string name="enable_pia">Enable PIA via Tailscale</string>
     <string name="refresh_status">Refresh status</string>
     <string name="open_tailscale">Open Tailscale</string>
+    <string name="test_ip">Test IP &amp; location</string>
     <string name="status_idle">VPN off — Tailscale stays connected</string>
 </resources>

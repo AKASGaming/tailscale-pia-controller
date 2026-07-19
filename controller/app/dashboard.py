@@ -1,4 +1,4 @@
-"""Simple HTML dashboard for the controller."""
+"""HTML dashboard for the controller."""
 
 from __future__ import annotations
 
@@ -8,12 +8,24 @@ from app import __version__
 from app.pairing import pairing_instructions, pairing_required, pairing_secret_value
 
 
+def _region_options(regions: list[dict], selected: str | None = None) -> str:
+    options = ['<option value="">— select region —</option>']
+    for region in regions:
+        sel = ' selected' if selected == region["id"] else ""
+        options.append(
+            f'<option value="{escape(region["id"])}"{sel}>{escape(region["display_name"])}</option>'
+        )
+    return "".join(options)
+
+
 def render_dashboard(
     *,
     status: str,
     active_stacks: int,
     registered_devices: int,
     regions: list[dict],
+    devices: list[dict],
+    message: str | None = None,
 ) -> str:
     pairing_block = ""
     if pairing_required():
@@ -23,7 +35,7 @@ def render_dashboard(
           <h2>Pairing secret</h2>
           <p>{escape(pairing_instructions())}</p>
           <div class="secret">{secret}</div>
-          <p class="muted">Copy this into the Android app or CLI when registering a device.</p>
+          <p class="muted">Required for device registration and admin actions below when set.</p>
         </section>
         """
     else:
@@ -40,6 +52,49 @@ def render_dashboard(
         for r in regions
     )
 
+    admin_secret_field = ""
+    if pairing_required():
+        admin_secret_field = """
+        <label>Admin secret
+          <input type="password" name="secret" placeholder="Pairing secret" required />
+        </label>
+        """
+
+    device_rows = ""
+    for device in devices:
+        region_select = _region_options(regions, device.get("region"))
+        vpn_label = "Yes" if device.get("vpn_enabled") else "No"
+        device_rows += f"""
+        <tr>
+          <td><strong>{escape(device['name'])}</strong><br><span class="muted">{escape(device['platform'])}</span></td>
+          <td><code>{escape(device['id'][:8])}…</code></td>
+          <td>{vpn_label}</td>
+          <td>{escape(device.get('region') or '—')}</td>
+          <td><code>{escape(device.get('exit_node_hostname') or '—')}</code></td>
+          <td>{escape(device.get('stack_status') or '—')}</td>
+          <td>
+            <form method="post" action="/admin/devices/{escape(device['id'])}/vpn" class="inline-form">
+              {admin_secret_field}
+              <label><input type="hidden" name="enabled" value="true" />
+              <select name="region">{region_select}</select></label>
+              <button type="submit">Enable</button>
+            </form>
+            <form method="post" action="/admin/devices/{escape(device['id'])}/vpn" class="inline-form">
+              {admin_secret_field}
+              <input type="hidden" name="enabled" value="false" />
+              <button type="submit" class="danger">Disable</button>
+            </form>
+            <form method="post" action="/admin/devices/{escape(device['id'])}/delete" class="inline-form"
+                  onsubmit="return confirm('Remove this device? The app will need to register again.');">
+              {admin_secret_field}
+              <button type="submit" class="danger">Remove</button>
+            </form>
+          </td>
+        </tr>
+        """
+
+    flash = f'<div class="flash">{escape(message)}</div>' if message else ""
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -52,9 +107,9 @@ def render_dashboard(
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
       line-height: 1.5;
     }}
-    body {{ max-width: 900px; margin: 0 auto; padding: 24px; }}
+    body {{ max-width: 1100px; margin: 0 auto; padding: 24px; }}
     h1 {{ margin-bottom: 0.25rem; }}
-    .muted {{ color: #666; }}
+    .muted {{ color: #666; font-size: 0.9rem; }}
     .card {{
       border: 1px solid #ccc;
       border-radius: 12px;
@@ -71,18 +126,33 @@ def render_dashboard(
       word-break: break-all;
       user-select: all;
     }}
-    table {{ width: 100%; border-collapse: collapse; }}
-    th, td {{ text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }}
-    code {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }}
+    table {{ width: 100%; border-collapse: collapse; font-size: 0.95rem; }}
+    th, td {{ text-align: left; padding: 10px 8px; border-bottom: 1px solid #ddd; vertical-align: top; }}
+    code {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; }}
     a {{ color: #6750a4; }}
     .stats {{ display: flex; gap: 16px; flex-wrap: wrap; }}
     .stat {{ min-width: 140px; }}
+    .flash {{
+      background: rgba(103, 80, 164, 0.15);
+      border: 1px solid #6750a4;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+    }}
+    .inline-form {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 6px;
+    }}
+    .inline-form label {{ display: flex; gap: 4px; align-items: center; }}
   </style>
 </head>
 <body>
   <h1>Tailscale PIA Controller</h1>
   <p class="muted">Version {escape(__version__)} · Status: <strong>{escape(status)}</strong></p>
-
+  {flash}
   {pairing_block}
 
   <section class="card">
@@ -95,21 +165,27 @@ def render_dashboard(
   </section>
 
   <section class="card">
+    <h2>Registered devices</h2>
+    <p class="muted">Control VPN per device from here if the client app is not available. Removing a device invalidates its API token — the mobile app must register again.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Device</th><th>ID</th><th>VPN</th><th>Region</th><th>Exit node</th><th>Stack</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {device_rows or '<tr><td colspan="7">No devices registered yet</td></tr>'}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
     <h2>Available regions</h2>
     <table>
       <thead><tr><th>Region</th><th>Exit node hostname</th><th>Stack status</th></tr></thead>
       <tbody>{region_rows or '<tr><td colspan="3">No regions configured</td></tr>'}</tbody>
     </table>
-  </section>
-
-  <section class="card">
-    <h2>Register a device</h2>
-    <ol>
-      <li>Install the PIA Control Android app or use the Windows CLI.</li>
-      <li>Enter this server's URL (e.g. <code>http://your-host:8090</code>).</li>
-      <li>{"Enter the pairing secret shown above." if pairing_required() else "No pairing secret is needed."}</li>
-      <li>Approve new <code>pia-*</code> exit nodes in the Tailscale admin console after enabling a region.</li>
-    </ol>
+    <p class="muted">After enabling a region, select the matching exit node in the Tailscale app on the device (e.g. <code>pia-mexico</code>).</p>
   </section>
 </body>
 </html>"""

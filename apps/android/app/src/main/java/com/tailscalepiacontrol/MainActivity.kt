@@ -28,6 +28,7 @@ class MainActivity : AppCompatActivity() {
         binding.registerButton.setOnClickListener { registerDevice() }
         binding.refreshButton.setOnClickListener { refreshStatus() }
         binding.openTailscaleButton.setOnClickListener { TailscaleHelper.openTailscaleApp(this) }
+        binding.testIpButton.setOnClickListener { testIpAndLocation() }
         binding.vpnSwitch.setOnCheckedChangeListener { _, isChecked -> onVpnToggled(isChecked) }
 
         if (prefs.isRegistered) {
@@ -129,7 +130,9 @@ class MainActivity : AppCompatActivity() {
                     labels
                 )
             } catch (error: Exception) {
-                toast("Failed to load regions: ${error.message}")
+                if (!handleApiError(error)) {
+                    toast("Failed to load regions: ${error.message}")
+                }
             }
         }
     }
@@ -162,7 +165,9 @@ class MainActivity : AppCompatActivity() {
                 }
                 binding.statusText.text = message
             } catch (error: Exception) {
-                toast("Status refresh failed: ${error.message}")
+                if (!handleApiError(error)) {
+                    toast("Status refresh failed: ${error.message}")
+                }
             }
         }
     }
@@ -202,9 +207,49 @@ class MainActivity : AppCompatActivity() {
                 refreshStatus()
             } catch (error: Exception) {
                 binding.vpnSwitch.isChecked = !enabled
-                toast("VPN update failed: ${error.message}")
+                if (!handleApiError(error)) {
+                    toast("VPN update failed: ${error.message}")
+                }
             }
         }
+    }
+
+    private fun testIpAndLocation() {
+        lifecycleScope.launch {
+            try {
+                binding.testIpButton.isEnabled = false
+                val result = withContext(Dispatchers.IO) { IpLookup.fetch() }
+                binding.statusText.text = IpLookup.format(result)
+                toast("IP lookup complete")
+            } catch (error: Exception) {
+                toast("IP lookup failed: ${error.message}")
+            } finally {
+                binding.testIpButton.isEnabled = true
+            }
+        }
+    }
+
+    private fun handleApiError(error: Exception): Boolean {
+        if (error.message?.contains("HTTP 401") == true) {
+            resetRegistration()
+            toast("Device removed from controller — please register again")
+            return true
+        }
+        return false
+    }
+
+    private fun resetRegistration() {
+        prefs.clearRegistration()
+        binding.vpnSwitch.isEnabled = false
+        binding.vpnSwitch.isChecked = false
+        binding.regionSpinner.isEnabled = false
+        binding.refreshButton.isEnabled = false
+        binding.registerButton.visibility = View.VISIBLE
+        binding.checkConnectionButton.visibility = View.VISIBLE
+        binding.deviceNameInput.isEnabled = true
+        binding.pairingSecretInput.isEnabled = true
+        binding.controllerUrlInput.isEnabled = true
+        binding.statusText.text = getString(R.string.status_idle)
     }
 
     private fun enableControls() {

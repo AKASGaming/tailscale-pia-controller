@@ -56,3 +56,18 @@ class PairingInfoResponse(BaseModel):
     required: bool
     instructions: str
     secret: str | None = None
+
+
+class DeviceSummary(BaseModel):
+    id: str
+    name: str
+    platform: str
+    created_at: str
+    vpn_enabled: bool
+    region: str | None = None
+    exit_node_hostname: str | None = None
+    stack_status: str | None = None
+
+
+class DeviceListResponse(BaseModel):
+    devices: list[DeviceSummary]

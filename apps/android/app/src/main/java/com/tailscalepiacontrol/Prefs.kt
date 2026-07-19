@@ -19,4 +19,11 @@ class Prefs(context: Context) {
 
     val isRegistered: Boolean
         get() = !apiToken.isNullOrBlank()
+
+    fun clearRegistration() {
+        prefs.edit()
+            .remove("api_token")
+            .remove("device_id")
+            .apply()
+    }
 }

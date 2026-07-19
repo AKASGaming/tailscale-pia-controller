@@ -36,3 +36,8 @@ def verify_pairing_secret(provided: str | None) -> None:
         )
     if provided.strip() != expected:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid pairing secret")
+
+
+def verify_admin_secret(provided: str | None) -> None:
+    """Protect admin web actions when CONTROLLER_SECRET is configured."""
+    verify_pairing_secret(provided)

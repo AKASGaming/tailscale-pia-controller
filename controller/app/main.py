@@ -4,31 +4,41 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
+from urllib.parse import quote
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
-from fastapi.responses import HTMLResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Query, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app import __version__
-from app.auth import get_current_device, verify_pairing_secret
+from app.auth import get_current_device, verify_admin_secret, verify_pairing_secret
+from app.config import get_settings
 from app.dashboard import render_dashboard
 from app.database import Base, SessionLocal, engine, get_db
-from app.docker_manager import ensure_region_stack, get_stack_status, release_region_stack, stop_idle_stacks
+from app.docker_manager import get_stack_status, stop_idle_stacks
 from app.host_paths import resolve_host_path
 from app.models import Device, RegionStack, VpnSession
-from app.config import get_settings
 from app.pairing import pairing_instructions, pairing_required, pairing_secret_value
 from app.regions import load_regions
 from app.schemas import (
     DeviceRegisterRequest,
     DeviceRegisterResponse,
+    DeviceSummary,
+    DeviceListResponse,
     HealthResponse,
     PairingInfoResponse,
     RegionInfo,
     RegionListResponse,
     VpnStatusResponse,
     VpnUpdateRequest,
+)
+from app.vpn_service import (
+    apply_vpn_update,
+    build_vpn_status,
+    delete_device,
+    get_or_create_session,
+    idle_cleanup,
+    list_device_summaries,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -66,24 +76,34 @@ app = FastAPI(
 )
 
 
-@app.get("/", response_class=HTMLResponse)
-def dashboard(db: Session = Depends(get_db)) -> HTMLResponse:
-    active = db.query(RegionStack).filter(RegionStack.status == "running").count()
-    devices = db.query(Device).count()
+def _region_dicts(db: Session) -> list[dict]:
     regions = []
     for region_id, region in load_regions().items():
         regions.append(
             {
+                "id": region_id,
                 "display_name": region.display_name,
                 "hostname": region.hostname,
                 "stack_status": get_stack_status(db, region_id) or "stopped",
             }
         )
+    return sorted(regions, key=lambda item: item["display_name"])
+
+
+@app.get("/", response_class=HTMLResponse)
+def dashboard(
+    db: Session = Depends(get_db),
+    msg: Annotated[str | None, Query()] = None,
+) -> HTMLResponse:
+    active = db.query(RegionStack).filter(RegionStack.status == "running").count()
+    devices_count = db.query(Device).count()
     html = render_dashboard(
         status="ok",
         active_stacks=active,
-        registered_devices=devices,
-        regions=sorted(regions, key=lambda item: item["display_name"]),
+        registered_devices=devices_count,
+        regions=_region_dicts(db),
+        devices=list_device_summaries(db),
+        message=msg,
     )
     return HTMLResponse(content=html)
 
@@ -121,6 +141,24 @@ def list_regions(db: Session = Depends(get_db)) -> RegionListResponse:
     return RegionListResponse(regions=sorted(regions, key=lambda item: item.display_name))
 
 
+@app.get("/admin/devices", response_model=DeviceListResponse)
+def admin_list_devices(db: Session = Depends(get_db)) -> DeviceListResponse:
+    summaries = [
+        DeviceSummary(
+            id=item["id"],
+            name=item["name"],
+            platform=item["platform"],
+            created_at=item["created_at"],
+            vpn_enabled=item["vpn_enabled"],
+            region=item["region"],
+            exit_node_hostname=item["exit_node_hostname"],
+            stack_status=item["stack_status"],
+        )
+        for item in list_device_summaries(db)
+    ]
+    return DeviceListResponse(devices=summaries)
+
+
 @app.post("/devices/register", response_model=DeviceRegisterResponse)
 def register_device(payload: DeviceRegisterRequest, db: Session = Depends(get_db)) -> DeviceRegisterResponse:
     verify_pairing_secret(payload.pairing_secret)
@@ -140,29 +178,8 @@ def register_device(payload: DeviceRegisterRequest, db: Session = Depends(get_db
 
 @app.get("/devices/me/vpn", response_model=VpnStatusResponse)
 def get_vpn_status(device: Device = Depends(get_current_device), db: Session = Depends(get_db)) -> VpnStatusResponse:
-    session = db.query(VpnSession).filter(VpnSession.device_id == device.id).first()
-    if session is None:
-        session = VpnSession(device_id=device.id, enabled=False)
-        db.add(session)
-        db.commit()
-        db.refresh(session)
-
-    stack_status = get_stack_status(db, session.region)
-    message = None
-    if session.enabled and stack_status == "starting":
-        message = "Regional VPN stack is starting. Wait 15-45 seconds, then enable the Tailscale exit node."
-    elif session.enabled and stack_status == "error":
-        message = "Regional VPN stack failed to start. Check controller logs."
-
-    return VpnStatusResponse(
-        device_id=device.id,
-        enabled=session.enabled,
-        region=session.region,
-        exit_node_hostname=session.exit_node_hostname,
-        allow_lan_access=True,
-        stack_status=stack_status,
-        message=message,
-    )
+    session = get_or_create_session(db, device)
+    return build_vpn_status(device, session, db)
 
 
 @app.put("/devices/me/vpn", response_model=VpnStatusResponse)
@@ -172,83 +189,44 @@ def update_vpn_status(
     device: Device = Depends(get_current_device),
     db: Session = Depends(get_db),
 ) -> VpnStatusResponse:
-    session = db.query(VpnSession).filter(VpnSession.device_id == device.id).first()
-    if session is None:
-        session = VpnSession(device_id=device.id)
-        db.add(session)
-
-    previous_region = session.region
-
-    if payload.enabled:
-        if not payload.region:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="region is required when enabling VPN")
-
-        regions = load_regions()
-        if payload.region not in regions:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown region: {payload.region}")
-
-        if previous_region and previous_region != payload.region:
-            release_region_stack(db, previous_region)
-
-        stack = ensure_region_stack(db, payload.region)
-        region = regions[payload.region]
-
-        session.enabled = True
-        session.region = payload.region
-        session.exit_node_hostname = region.hostname
-        session.updated_at = datetime.utcnow()
-        db.commit()
-
-        message = "VPN enabled."
-        if stack.status == "starting":
-            message = (
-                f"Starting {region.display_name} exit node ({region.hostname}). "
-                "Wait until stack is running, then select this exit node in Tailscale."
-            )
-        elif stack.status == "error":
-            message = f"Failed to start stack: {stack.error_message or 'unknown error'}"
-
-        return VpnStatusResponse(
-            device_id=device.id,
-            enabled=True,
-            region=session.region,
-            exit_node_hostname=session.exit_node_hostname,
-            allow_lan_access=True,
-            stack_status=stack.status,
-            message=message,
-        )
-
-    if previous_region:
-        release_region_stack(db, previous_region)
-        background_tasks.add_task(_idle_cleanup)
-
-    session.enabled = False
-    session.region = None
-    session.exit_node_hostname = None
-    session.updated_at = datetime.utcnow()
-    db.commit()
-
-    return VpnStatusResponse(
-        device_id=device.id,
-        enabled=False,
-        region=None,
-        exit_node_hostname=None,
-        allow_lan_access=True,
-        stack_status=None,
-        message="VPN disabled for this device. Clear your Tailscale exit node.",
-    )
+    return apply_vpn_update(device, payload, db, background_tasks)
 
 
-def _idle_cleanup() -> None:
-    db = SessionLocal()
-    try:
-        stopped = stop_idle_stacks(db)
-        if stopped:
-            logger.info("Stopped %s idle regional stacks", stopped)
-    except Exception:
-        logger.exception("Idle cleanup failed")
-    finally:
-        db.close()
+@app.post("/admin/devices/{device_id}/vpn")
+def admin_update_device_vpn(
+    device_id: str,
+    background_tasks: BackgroundTasks,
+    enabled: Annotated[str, Form()],
+    db: Session = Depends(get_db),
+    region: Annotated[str | None, Form()] = None,
+    secret: Annotated[str | None, Form()] = None,
+):
+    verify_admin_secret(secret)
+    device = db.get(Device, device_id)
+    if device is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+
+    is_enabled = enabled.lower() in {"true", "1", "on", "yes"}
+    payload = VpnUpdateRequest(enabled=is_enabled, region=region or None)
+    result = apply_vpn_update(device, payload, db, background_tasks)
+    msg = result.message or ("VPN updated" if is_enabled else "VPN disabled")
+    return RedirectResponse(url=f"/?msg={quote(msg)}", status_code=303)
+
+
+@app.post("/admin/devices/{device_id}/delete")
+def admin_delete_device(
+    device_id: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    secret: Annotated[str | None, Form()] = None,
+):
+    verify_admin_secret(secret)
+    device = db.get(Device, device_id)
+    if device is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    name = device.name
+    delete_device(device, db, background_tasks)
+    return RedirectResponse(url=f"/?msg=Removed device {name}", status_code=303)
 
 
 @app.post("/admin/cleanup-idle")
