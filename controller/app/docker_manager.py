@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.host_paths import resolve_host_path
-from app.models import RegionStack
+from app.models import RegionStack, VpnSession
 from app.regions import RegionConfig, load_regions
 
 logger = logging.getLogger(__name__)
@@ -304,6 +304,22 @@ def stop_all_stacks(db: Session) -> int:
     return stopped
 
 
+def active_session_count(db: Session, region_id: str) -> int:
+    return (
+        db.query(VpnSession)
+        .filter(VpnSession.enabled.is_(True), VpnSession.region == region_id)
+        .count()
+    )
+
+
+def reconcile_ref_counts(db: Session) -> None:
+    """Sync stored ref_count values with enabled VPN sessions."""
+    stacks = db.query(RegionStack).all()
+    for stack in stacks:
+        stack.ref_count = active_session_count(db, stack.region)
+    db.commit()
+
+
 def stop_idle_stacks(db: Session) -> int:
     settings = get_settings()
     cutoff = datetime.utcnow() - timedelta(minutes=settings.idle_shutdown_minutes)
@@ -311,7 +327,7 @@ def stop_idle_stacks(db: Session) -> int:
 
     stacks = db.query(RegionStack).filter(RegionStack.status == "running").all()
     for stack in stacks:
-        if stack.ref_count > 0:
+        if active_session_count(db, stack.region) > 0:
             continue
         if stack.last_used_at and stack.last_used_at > cutoff:
             continue
@@ -332,9 +348,10 @@ def get_stack_status(db: Session, region_id: str | None) -> str | None:
     return stack.status if stack else None
 
 
-def stack_idle_info(stack: RegionStack | None) -> dict:
+def stack_idle_info(db: Session, stack: RegionStack | None, region_id: str) -> dict:
     settings = get_settings()
     idle_minutes = settings.idle_shutdown_minutes
+    active_devices = active_session_count(db, region_id) if stack else 0
 
     if stack is None or stack.status not in {"running", "starting"}:
         return {
@@ -344,9 +361,9 @@ def stack_idle_info(stack: RegionStack | None) -> dict:
             "idle_status": "stopped",
         }
 
-    if stack.ref_count > 0:
+    if active_devices > 0:
         return {
-            "ref_count": stack.ref_count,
+            "ref_count": active_devices,
             "idle_shutdown_minutes": idle_minutes,
             "shutdown_at": None,
             "idle_status": "in_use",
@@ -372,7 +389,7 @@ def stack_idle_info(stack: RegionStack | None) -> dict:
 
 def build_region_info_dict(db: Session, region_id: str, region: RegionConfig) -> dict:
     stack = db.get(RegionStack, region_id)
-    idle = stack_idle_info(stack)
+    idle = stack_idle_info(db, stack, region_id)
     return {
         "id": region_id,
         "display_name": region.display_name,

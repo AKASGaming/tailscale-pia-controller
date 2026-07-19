@@ -70,6 +70,37 @@ def apply_vpn_update(
         if previous_region and previous_region != payload.region:
             release_region_stack(db, previous_region)
 
+        if session.enabled and session.region == payload.region:
+            stack = db.get(RegionStack, payload.region)
+            region = regions[payload.region]
+            if stack is None:
+                stack = acquire_region_stack(db, payload.region)
+            elif stack.status != "running":
+                if background_tasks is not None:
+                    background_tasks.add_task(start_region_stack_docker, payload.region)
+                else:
+                    start_region_stack_docker(payload.region)
+                db.refresh(stack)
+
+            message = "VPN enabled."
+            if stack and stack.status == "starting":
+                message = (
+                    f"Starting {region.display_name} exit node ({region.hostname}). "
+                    "The app will apply the Tailscale exit node when the stack is ready."
+                )
+            elif stack and stack.status == "error":
+                message = f"Failed to start stack: {stack.error_message or 'unknown error'}"
+
+            return VpnStatusResponse(
+                device_id=device.id,
+                enabled=True,
+                region=session.region,
+                exit_node_hostname=session.exit_node_hostname,
+                allow_lan_access=True,
+                stack_status=stack.status if stack else "stopped",
+                message=message,
+            )
+
         stack = acquire_region_stack(db, payload.region)
         region = regions[payload.region]
 

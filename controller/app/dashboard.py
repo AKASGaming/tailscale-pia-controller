@@ -12,7 +12,9 @@ def _idle_label(region: dict) -> str:
     status = region.get("idle_status", "stopped")
     stack = region.get("stack_status", "stopped")
     if status == "in_use":
-        return f"In use ({region.get('ref_count', 0)})"
+        count = region.get("ref_count", 0)
+        noun = "device" if count == 1 else "devices"
+        return f"In use ({count} {noun})"
     if stack not in {"running", "starting"}:
         return "—"
     if status == "eligible":
@@ -369,7 +371,8 @@ def render_dashboard(
 
     function formatIdleCountdown(region) {{
       if (region.idle_status === "in_use") {{
-        return `In use (${{region.ref_count}})`;
+        const noun = region.ref_count === 1 ? "device" : "devices";
+        return `In use (${{region.ref_count}} ${{noun}})`;
       }}
       if (region.stack_status !== "running" && region.stack_status !== "starting") {{
         return "—";

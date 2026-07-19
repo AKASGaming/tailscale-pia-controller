@@ -18,7 +18,7 @@ from app.auth import get_current_device, verify_admin_secret, verify_pairing_cre
 from app.config import get_settings
 from app.dashboard import render_dashboard
 from app.database import Base, SessionLocal, engine, get_db
-from app.docker_manager import build_region_info_dict, stop_idle_stacks
+from app.docker_manager import build_region_info_dict, reconcile_ref_counts, stop_idle_stacks
 from app.host_paths import resolve_host_path
 from app.models import Device, RegionStack, VpnSession
 from app.pairing import pairing_instructions, pairing_required
@@ -69,6 +69,11 @@ async def _periodic_idle_cleanup() -> None:
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     settings = get_settings()
+    startup_db = SessionLocal()
+    try:
+        reconcile_ref_counts(startup_db)
+    finally:
+        startup_db.close()
     host_runtime = resolve_host_path(settings.runtime_dir)
     logger.info("Resolved host runtime directory: %s", host_runtime)
     try:
