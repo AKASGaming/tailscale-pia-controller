@@ -195,14 +195,19 @@ def render_dashboard(
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Tailscale PIA Controller</title>
+  <link rel="icon" href="/static/favicon.png?v={asset_version}" type="image/png" />
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v={asset_version}" />
   <link rel="stylesheet" href="/static/dashboard.css?v={asset_version}" />
 </head>
 <body data-pairing-required="{"true" if pairing_required() else "false"}">
   <div class="shell">
     <header class="topbar">
-      <div>
-        <h1>Tailscale PIA Controller</h1>
-        <p class="meta">Version {escape(__version__)} · Status: <strong id="server-status" class="server-status server-status-{escape(status.lower())}">{escape(status)}</strong></p>
+      <div class="topbar-brand">
+        <img src="/static/app-icon.png?v={asset_version}" alt="" class="brand-icon" width="44" height="44" />
+        <div>
+          <h1>Tailscale PIA Controller</h1>
+          <p class="meta">Version {escape(__version__)} · Status: <strong id="server-status" class="server-status server-status-{escape(status.lower())}">{escape(status)}</strong></p>
+        </div>
       </div>
       <div id="live-indicator" class="live-pill">Live updates starting…</div>
     </header>

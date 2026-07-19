@@ -6,25 +6,17 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import androidx.core.app.NotificationCompat
 
 object NotificationHelper {
-    const val CHANNEL_MONITOR = "vpn_monitor"
     const val CHANNEL_CHANGES = "vpn_changes"
-    const val NOTIFICATION_ID_MONITOR = 1
+    private const val CHANNEL_FOREGROUND = "vpn_foreground"
+    const val NOTIFICATION_ID_FOREGROUND = 1
     const val NOTIFICATION_ID_CHANGE = 2
 
     fun createChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
-
-        val monitorChannel = NotificationChannel(
-            CHANNEL_MONITOR,
-            context.getString(R.string.notification_channel_monitor),
-            NotificationManager.IMPORTANCE_LOW,
-        ).apply {
-            description = context.getString(R.string.notification_channel_monitor_desc)
-            setShowBadge(false)
-        }
 
         val changesChannel = NotificationChannel(
             CHANNEL_CHANGES,
@@ -34,11 +26,25 @@ object NotificationHelper {
             description = context.getString(R.string.notification_channel_changes_desc)
         }
 
-        manager.createNotificationChannel(monitorChannel)
         manager.createNotificationChannel(changesChannel)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val silentChannel = NotificationChannel(
+                CHANNEL_FOREGROUND,
+                context.getString(R.string.notification_channel_foreground),
+                NotificationManager.IMPORTANCE_MIN,
+            ).apply {
+                description = context.getString(R.string.notification_channel_foreground_desc)
+                setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
+                enableLights(false)
+            }
+            manager.createNotificationChannel(silentChannel)
+        }
     }
 
-    fun buildMonitorNotification(context: Context): Notification {
+    fun buildSilentForegroundNotification(context: Context): Notification {
         val openAppIntent = PendingIntent.getActivity(
             context,
             0,
@@ -48,19 +54,51 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        return NotificationCompat.Builder(context, CHANNEL_MONITOR)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(context.getString(R.string.notification_monitor_title))
-            .setContentText(context.getString(R.string.notification_monitor_text))
+        return NotificationCompat.Builder(context, CHANNEL_FOREGROUND)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.app_name))
+            .setContentText(" ")
             .setContentIntent(openAppIntent)
             .setOngoing(true)
+            .setSilent(true)
+            .setShowWhen(false)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFERRED)
+            .build()
+    }
+
+    fun buildChangeNotification(context: Context, change: VpnRemoteSync.RemoteChange): Notification {
+        val (title, text) = changeContent(context, change)
+
+        val openAppIntent = PendingIntent.getActivity(
+            context,
+            change.hashCode(),
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        return NotificationCompat.Builder(context, CHANNEL_CHANGES)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openAppIntent)
+            .setAutoCancel(true)
             .setOnlyAlertOnce(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 
     fun showChangeNotification(context: Context, change: VpnRemoteSync.RemoteChange) {
-        val (title, text) = when (change) {
+        context.getSystemService(NotificationManager::class.java)
+            .notify(NOTIFICATION_ID_CHANGE, buildChangeNotification(context, change))
+    }
+
+    private fun changeContent(context: Context, change: VpnRemoteSync.RemoteChange): Pair<String, String> {
+        return when (change) {
             is VpnRemoteSync.RemoteChange.Disabled -> {
                 context.getString(R.string.notification_vpn_disabled_title) to
                     context.getString(R.string.notification_vpn_disabled_text)
@@ -76,28 +114,6 @@ object NotificationHelper {
                     context.getString(R.string.notification_region_changed_text, regionLabel)
             }
         }
-
-        val openAppIntent = PendingIntent.getActivity(
-            context,
-            change.hashCode(),
-            Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-
-        val notification = NotificationCompat.Builder(context, CHANNEL_CHANGES)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setContentIntent(openAppIntent)
-            .setAutoCancel(true)
-            .setOnlyAlertOnce(true)
-            .build()
-
-        context.getSystemService(NotificationManager::class.java)
-            .notify(NOTIFICATION_ID_CHANGE, notification)
     }
 
     private fun formatRegion(region: String?): String {

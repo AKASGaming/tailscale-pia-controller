@@ -32,8 +32,8 @@ class VpnMonitorService : Service() {
         }
 
         startForeground(
-            NotificationHelper.NOTIFICATION_ID_MONITOR,
-            NotificationHelper.buildMonitorNotification(this),
+            NotificationHelper.NOTIFICATION_ID_FOREGROUND,
+            NotificationHelper.buildSilentForegroundNotification(this),
         )
         startPolling()
         return START_STICKY
