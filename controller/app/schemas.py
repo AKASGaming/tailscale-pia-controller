@@ -1,0 +1,52 @@
+"""Pydantic request/response schemas."""
+
+from datetime import datetime
+
+from pydantic import BaseModel, Field
+
+
+class DeviceRegisterRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    platform: str = Field(default="unknown", max_length=32)
+    tailscale_ip: str | None = None
+    pairing_secret: str | None = None
+
+
+class DeviceRegisterResponse(BaseModel):
+    device_id: str
+    api_token: str
+    name: str
+
+
+class VpnUpdateRequest(BaseModel):
+    enabled: bool
+    region: str | None = None
+
+
+class VpnStatusResponse(BaseModel):
+    device_id: str
+    enabled: bool
+    region: str | None = None
+    exit_node_hostname: str | None = None
+    allow_lan_access: bool = True
+    stack_status: str | None = None
+    public_ip: str | None = None
+    message: str | None = None
+
+
+class RegionInfo(BaseModel):
+    id: str
+    display_name: str
+    hostname: str
+    stack_status: str
+
+
+class RegionListResponse(BaseModel):
+    regions: list[RegionInfo]
+
+
+class HealthResponse(BaseModel):
+    status: str
+    version: str = "1.0.0"
+    active_stacks: int
+    registered_devices: int

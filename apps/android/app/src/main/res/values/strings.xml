@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PIA Control</string>
+    <string name="controller_url">Controller URL</string>
+    <string name="device_name">Device name</string>
+    <string name="pairing_secret">Pairing secret (optional)</string>
+    <string name="register">Register device</string>
+    <string name="region">Region</string>
+    <string name="enable_pia">Enable PIA via Tailscale</string>
+    <string name="refresh_status">Refresh status</string>
+    <string name="open_tailscale">Open Tailscale</string>
+    <string name="status_idle">VPN off — Tailscale stays connected</string>
+</resources>

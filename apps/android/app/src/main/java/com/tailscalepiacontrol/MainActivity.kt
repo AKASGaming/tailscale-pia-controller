@@ -1,0 +1,174 @@
+package com.tailscalepiacontrol
+
+import android.os.Bundle
+import android.view.View
+import android.widget.ArrayAdapter
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import com.tailscalepiacontrol.databinding.ActivityMainBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+class MainActivity : AppCompatActivity() {
+    private lateinit var binding: ActivityMainBinding
+    private lateinit var prefs: Prefs
+    private var regions: List<RegionInfo> = emptyList()
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        prefs = Prefs(this)
+
+        prefs.controllerUrl?.let { binding.controllerUrlInput.setText(it) }
+
+        binding.registerButton.setOnClickListener { registerDevice() }
+        binding.refreshButton.setOnClickListener { refreshStatus() }
+        binding.openTailscaleButton.setOnClickListener { TailscaleHelper.openTailscaleApp(this) }
+        binding.vpnSwitch.setOnCheckedChangeListener { _, isChecked -> onVpnToggled(isChecked) }
+
+        if (prefs.isRegistered) {
+            enableControls()
+            loadRegions()
+            refreshStatus()
+        }
+    }
+
+    private fun registerDevice() {
+        val baseUrl = binding.controllerUrlInput.text?.toString()?.trim().orEmpty()
+        val name = binding.deviceNameInput.text?.toString()?.trim().orEmpty()
+        val secret = binding.pairingSecretInput.text?.toString()?.trim().orEmpty().ifBlank { null }
+
+        if (baseUrl.isBlank() || name.isBlank()) {
+            toast("Controller URL and device name are required")
+            return
+        }
+
+        lifecycleScope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) {
+                    ControllerClient(baseUrl).register(name, "android", secret)
+                }
+                prefs.controllerUrl = baseUrl
+                prefs.apiToken = response.api_token
+                prefs.deviceId = response.device_id
+                toast("Registered as ${response.name}")
+                enableControls()
+                loadRegions()
+                refreshStatus()
+            } catch (error: Exception) {
+                toast("Registration failed: ${error.message}")
+            }
+        }
+    }
+
+    private fun loadRegions() {
+        val baseUrl = prefs.controllerUrl ?: return
+        val token = prefs.apiToken ?: return
+
+        lifecycleScope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) {
+                    ControllerClient(baseUrl, token).listRegions()
+                }
+                regions = response.regions
+                val labels = regions.map { "${it.display_name} (${it.hostname})" }
+                binding.regionSpinner.adapter = ArrayAdapter(
+                    this@MainActivity,
+                    android.R.layout.simple_spinner_dropdown_item,
+                    labels
+                )
+            } catch (error: Exception) {
+                toast("Failed to load regions: ${error.message}")
+            }
+        }
+    }
+
+    private fun refreshStatus() {
+        val baseUrl = prefs.controllerUrl ?: return
+        val token = prefs.apiToken ?: return
+
+        lifecycleScope.launch {
+            try {
+                val status = withContext(Dispatchers.IO) {
+                    ControllerClient(baseUrl, token).getVpnStatus()
+                }
+                binding.vpnSwitch.setOnCheckedChangeListener(null)
+                binding.vpnSwitch.isChecked = status.enabled
+                binding.vpnSwitch.setOnCheckedChangeListener { _, isChecked -> onVpnToggled(isChecked) }
+
+                status.region?.let { regionId ->
+                    val index = regions.indexOfFirst { it.id == regionId }
+                    if (index >= 0) binding.regionSpinner.setSelection(index)
+                }
+
+                val message = buildString {
+                    append("Device: ${status.device_id}\n")
+                    append("Enabled: ${status.enabled}\n")
+                    append("Region: ${status.region ?: "-"}\n")
+                    append("Exit node: ${status.exit_node_hostname ?: "-"}\n")
+                    append("Stack: ${status.stack_status ?: "-"}\n")
+                    status.message?.let { append("\n$it") }
+                }
+                binding.statusText.text = message
+            } catch (error: Exception) {
+                toast("Status refresh failed: ${error.message}")
+            }
+        }
+    }
+
+    private fun onVpnToggled(enabled: Boolean) {
+        val baseUrl = prefs.controllerUrl ?: return
+        val token = prefs.apiToken ?: return
+
+        val region = if (enabled) {
+            val index = binding.regionSpinner.selectedItemPosition
+            if (index < 0 || index >= regions.size) {
+                binding.vpnSwitch.isChecked = false
+                toast("Select a region first")
+                return
+            }
+            regions[index].id
+        } else {
+            null
+        }
+
+        lifecycleScope.launch {
+            try {
+                val status = withContext(Dispatchers.IO) {
+                    ControllerClient(baseUrl, token).updateVpn(enabled, region)
+                }
+
+                if (enabled && !status.exit_node_hostname.isNullOrBlank()) {
+                    if (status.stack_status == "running") {
+                        TailscaleHelper.setExitNode(this@MainActivity, status.exit_node_hostname, status.allow_lan_access)
+                    } else {
+                        toast("Stack starting — refresh in 30s, then exit node will be applied")
+                    }
+                } else if (!enabled) {
+                    TailscaleHelper.setExitNode(this@MainActivity, null, true)
+                }
+
+                refreshStatus()
+            } catch (error: Exception) {
+                binding.vpnSwitch.isChecked = !enabled
+                toast("VPN update failed: ${error.message}")
+            }
+        }
+    }
+
+    private fun enableControls() {
+        binding.vpnSwitch.isEnabled = true
+        binding.regionSpinner.isEnabled = true
+        binding.refreshButton.isEnabled = true
+        binding.registerButton.visibility = View.GONE
+        binding.deviceNameInput.isEnabled = false
+        binding.pairingSecretInput.isEnabled = false
+    }
+
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+}

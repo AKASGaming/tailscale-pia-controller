@@ -1,0 +1,33 @@
+services:
+  vpn-controller:
+    build: ./controller
+    container_name: vpn-controller
+    restart: unless-stopped
+    ports:
+      - "${CONTROLLER_PORT:-8090}:8090"
+    environment:
+      - DATABASE_URL=sqlite:////data/vpn-controller.db
+      - REGIONS_FILE=/project/regions/regions.yaml
+      - RUNTIME_DIR=/project/runtime
+      - HOST_RUNTIME_DIR=${HOST_RUNTIME_DIR:-/project/runtime}
+      - COMPOSE_PROJECT_NAME=tailscale-pia
+      - PIA_USER=${PIA_USER}
+      - PIA_PASS=${PIA_PASS}
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - LAN_CIDR=${LAN_CIDR:-192.168.1.0/24}
+      - TS_BASE_PORT=${TS_BASE_PORT:-41641}
+      - CONTROLLER_SECRET=${CONTROLLER_SECRET:-}
+      - IDLE_SHUTDOWN_MINUTES=${IDLE_SHUTDOWN_MINUTES:-30}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/project
+      - controller-data:/data
+    networks:
+      - vpn-net
+
+networks:
+  vpn-net:
+    driver: bridge
+
+volumes:
+  controller-data:

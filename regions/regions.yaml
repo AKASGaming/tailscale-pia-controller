@@ -1,0 +1,35 @@
+# Available PIA regions — hostname becomes the Tailscale exit node name.
+# server_region must match Gluetun/PIA naming: https://github.com/qdm12/gluetun-wiki/blob/main/setup/providers/private-internet-access.md
+regions:
+  mexico:
+    display_name: Mexico
+    server_region: Mexico
+    hostname: pia-mexico
+  us-east:
+    display_name: US East
+    server_region: US East
+    hostname: pia-us-east
+  us-west:
+    display_name: US West
+    server_region: US West
+    hostname: pia-us-west
+  uk:
+    display_name: UK London
+    server_region: UK London
+    hostname: pia-uk
+  netherlands:
+    display_name: Netherlands
+    server_region: Netherlands
+    hostname: pia-nl
+  canada:
+    display_name: Canada
+    server_region: Canada
+    hostname: pia-ca
+  japan:
+    display_name: Japan
+    server_region: Japan
+    hostname: pia-jp
+  australia:
+    display_name: Australia
+    server_region: Australia
+    hostname: pia-au
