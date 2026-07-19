@@ -373,6 +373,15 @@ def get_stack_status(db: Session, region_id: str | None) -> str | None:
     return stack.status if stack else None
 
 
+def display_stack_status(raw_status: str | None, idle_status: str | None = None) -> str:
+    """Map a running stack with no connected devices to idle for UI display."""
+    status = (raw_status or "stopped").lower()
+    idle = (idle_status or "stopped").lower()
+    if status == "running" and idle in {"idle", "eligible"}:
+        return "idle"
+    return status
+
+
 def stack_idle_info(db: Session, stack: RegionStack | None, region_id: str) -> dict:
     settings = get_settings()
     idle_minutes = settings.idle_shutdown_minutes

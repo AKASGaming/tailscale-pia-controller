@@ -5,7 +5,22 @@ from __future__ import annotations
 from html import escape
 
 from app import __version__
+from app.docker_manager import display_stack_status
 from app.pairing import pairing_instructions, pairing_required
+
+
+def _display_stack_status(region: dict) -> str:
+    return display_stack_status(region.get("stack_status"), region.get("idle_status"))
+
+
+def _device_display_stack_status(device: dict, regions: list[dict]) -> str:
+    region_id = device.get("region")
+    if not region_id:
+        return device.get("stack_status") or "—"
+    region = next((item for item in regions if item["id"] == region_id), None)
+    if region:
+        return _display_stack_status(region)
+    return device.get("stack_status") or "—"
 
 
 def _idle_label(region: dict) -> str:
@@ -37,7 +52,11 @@ def _idle_cell_attrs(region: dict) -> str:
 
 def _stack_badge(status: str) -> str:
     normalized = (status or "stopped").lower()
-    badge_class = normalized if normalized in {"running", "starting", "stopped", "error"} else "stopped"
+    badge_class = (
+        normalized
+        if normalized in {"running", "starting", "stopped", "error", "idle"}
+        else "stopped"
+    )
     return f'<span class="badge badge-{badge_class}">{escape(status or "stopped")}</span>'
 
 
@@ -130,7 +149,7 @@ def render_dashboard(
         f"<td>{escape(r['display_name'])}</td>"
         f"<td><code>{escape(r['server_region'])}</code></td>"
         f"<td><code>{escape(r['hostname'])}</code></td>"
-        f"<td class=\"region-stack\">{_stack_badge(r['stack_status'])}</td>"
+        f"<td class=\"region-stack\">{_stack_badge(_display_stack_status(r))}</td>"
         f"<td {_idle_cell_attrs(r)}>{escape(_idle_label(r))}</td>"
         f"<td class=\"region-actions\">{_region_stop_button(r)}</td></tr>"
         for r in regions
@@ -140,6 +159,7 @@ def render_dashboard(
     for device in devices:
         region_select = _region_options(regions, device.get("region"))
         vpn_label = "Yes" if device.get("vpn_enabled") else "No"
+        stack_label = _device_display_stack_status(device, regions)
         device_rows += f"""
         <tr data-device-id="{escape(device['id'])}">
           <td><strong>{escape(device['name'])}</strong><br><span class="muted">{escape(device['platform'])}</span></td>
@@ -147,7 +167,7 @@ def render_dashboard(
           <td class="device-vpn">{vpn_label}</td>
           <td class="device-region">{escape(device.get('region_display_name') or '—')}</td>
           <td class="device-exit"><code>{escape(device.get('exit_node_hostname') or '—')}</code></td>
-          <td class="device-stack">{_stack_badge(device.get('stack_status') or '—')}</td>
+          <td class="device-stack">{_stack_badge(stack_label)}</td>
           <td>
             <form method="post" action="/admin/devices/{escape(device['id'])}/vpn" class="inline-form">
               <label><input type="hidden" name="enabled" value="true" />

@@ -10,9 +10,24 @@ function escapeHtml(value) {
   return node.innerHTML;
 }
 
+function displayStackStatus(region) {
+  const stack = (region.stack_status || "stopped").toLowerCase();
+  const idle = (region.idle_status || "stopped").toLowerCase();
+  if (stack === "running" && (idle === "idle" || idle === "eligible")) {
+    return "idle";
+  }
+  return stack;
+}
+
+function deviceDisplayStackStatus(device, regions) {
+  if (!device.region) return device.stack_status || "—";
+  const region = regions.find((item) => item.id === device.region);
+  return region ? displayStackStatus(region) : (device.stack_status || "—");
+}
+
 function stackBadge(status) {
   const normalized = (status || "stopped").toLowerCase();
-  const cls = ["running", "starting", "stopped", "error"].includes(normalized)
+  const cls = ["running", "starting", "stopped", "error", "idle"].includes(normalized)
     ? `badge-${normalized}`
     : "badge-stopped";
   return `<span class="badge ${cls}">${escapeHtml(status || "stopped")}</span>`;
@@ -97,7 +112,7 @@ function renderDeviceRow(device, regions) {
       <td class="device-vpn">${vpnLabel}</td>
       <td class="device-region">${escapeHtml(device.region_display_name || "—")}</td>
       <td class="device-exit"><code>${escapeHtml(device.exit_node_hostname || "—")}</code></td>
-      <td class="device-stack">${stackBadge(device.stack_status || "—")}</td>
+      <td class="device-stack">${stackBadge(deviceDisplayStackStatus(device, regions))}</td>
       <td>
         <form method="post" action="/admin/devices/${escapeHtml(device.id)}/vpn" class="inline-form">
           ${adminSecretInput()}
@@ -133,7 +148,7 @@ function updateDevices(devices, regions) {
       row.querySelector(".device-vpn").textContent = device.vpn_enabled ? "Yes" : "No";
       row.querySelector(".device-region").textContent = device.region_display_name || "—";
       row.querySelector(".device-exit code").textContent = device.exit_node_hostname || "—";
-      row.querySelector(".device-stack").innerHTML = stackBadge(device.stack_status || "—");
+      row.querySelector(".device-stack").innerHTML = stackBadge(deviceDisplayStackStatus(device, regions));
     }
     return;
   }
@@ -158,7 +173,7 @@ function updateRegions(regions) {
     for (const region of regions) {
       const row = tbody.querySelector(`tr[data-region-id="${region.id}"]`);
       if (!row) continue;
-      row.querySelector(".region-stack").innerHTML = stackBadge(region.stack_status);
+      row.querySelector(".region-stack").innerHTML = stackBadge(displayStackStatus(region));
       const idleCell = row.querySelector(".region-idle");
       idleCell.dataset.idleStatus = region.idle_status;
       idleCell.dataset.stackStatus = region.stack_status;
@@ -177,7 +192,7 @@ function updateRegions(regions) {
       <td>${escapeHtml(region.display_name)}</td>
       <td><code>${escapeHtml(region.server_region)}</code></td>
       <td><code>${escapeHtml(region.hostname)}</code></td>
-      <td class="region-stack">${stackBadge(region.stack_status)}</td>
+      <td class="region-stack">${stackBadge(displayStackStatus(region))}</td>
       <td class="region-idle"
           data-idle-status="${escapeHtml(region.idle_status)}"
           data-stack-status="${escapeHtml(region.stack_status)}"
